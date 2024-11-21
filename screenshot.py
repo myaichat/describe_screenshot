@@ -121,15 +121,46 @@ class ScreenshotOverlay(wx.Frame):
                 gc.SetPen(wx.Pen(wx.Colour(0, 255, 0), 2))
                 gc.DrawRectangle(x, y, width, height)
 
+import threading
+import keyboard  # For global hotkeys
+
 class ScreenshotApp(wx.App):
     def OnInit(self):
         try:
             print("Initializing App")
+            self.coordinates_frame = None  # Reference to the CoordinatesFrame
             self.show_monitor_selection_dialog()
+
+            # Start a global hotkey listener thread
+            self.start_hotkey_listener()
             return True
         except Exception as e:
             wx.MessageBox(f"Error during initialization: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
             return False
+
+    def start_hotkey_listener(self):
+        """Start a thread to listen for global hotkeys."""
+        def listen_for_hotkey():
+            keyboard.add_hotkey("ctrl+space", self.trigger_screenshot_hotkey)
+            keyboard.wait()  # Keeps the listener running
+
+        thread = threading.Thread(target=listen_for_hotkey, daemon=True)
+        thread.start()
+
+    def trigger_screenshot_hotkey(self):
+        """Trigger the screenshot action when Ctrl+Space is pressed."""
+        wx.CallAfter(self.update_existing_coordinates_frame)
+
+    def update_existing_coordinates_frame(self):
+        """Update the existing CoordinatesFrame with a new screenshot."""
+        if self.coordinates_frame:
+            # Coordinates for the screenshot; adjust as needed or make dynamic
+            coordinates = self.coordinates_frame.coordinates
+            self.coordinates_frame.take_screenshot(coordinates)
+        else:
+            # Handle case where CoordinatesFrame doesn't exist yet
+            wx.MessageBox("CoordinatesFrame is not available!", "Error", wx.OK | wx.ICON_ERROR)
+
 
     def show_monitor_selection_dialog(self):
         dialog = MonitorSelectionDialog(None)
@@ -203,8 +234,6 @@ class CoordinatesFrame(wx.Frame):
 
         panel.SetSizer(vbox)
 
-
-
     def update_coordinates(self, new_coordinates):
         self.coordinates = new_coordinates
         self.coord_label.SetLabel(f"Selected Coordinates: {new_coordinates}")
@@ -213,37 +242,21 @@ class CoordinatesFrame(wx.Frame):
         self.Hide()
         self.callback()
 
-    def _take_screenshot(self, coordinates):
-        x, y, width, height = coordinates
-        
-        # Get all displays to calculate correct offset
-        primary_display = wx.Display(0).GetGeometry()
-        
-        # Adjust coordinates for secondary monitor
-        if x < 0:
-            x = primary_display.width + abs(x)
-            
-        # Add delay to ensure overlay is closed
-        wx.CallLater(100, self._delayed_screenshot, x, y, width, height)
-        
-
     def take_screenshot(self, coordinates):
         import mss
         x, y, width, height = coordinates
-        #print({"top": y, "left": x, "width": width, "height": height})
         with mss.mss() as sct:
             monitor = {"top": y, "left": x, "width": width, "height": height}
             screenshot = sct.grab(monitor)  # Capture the screenshot
-            #print(screenshot)
+
             # Convert the screenshot to a PIL image
             pil_image = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-            #print(1, pil_image)
+
             # Resize the image to fit the canvas
             pil_image.thumbnail(self.canvas_size)
-            #print(2, pil_image)
+
             # Convert the PIL image to wx.Image for display in the wx.StaticBitmap
             wx_image = wx.Image(*pil_image.size)
-            #print(wx_image)
             wx_image.SetData(pil_image.convert("RGB").tobytes())
             self.screenshot_bitmap = wx_image.ConvertToBitmap()
 
@@ -251,28 +264,6 @@ class CoordinatesFrame(wx.Frame):
             self.canvas.SetBitmap(self.screenshot_bitmap)
             self.Layout()
             self.Refresh()
-      
-    
-
-    def _delayed_screenshot(self, x, y, width, height):
-        try:
-            screenshot = pyautogui.screenshot(region=(x, y, width, height))
-            
-            image_bytes = io.BytesIO()
-            screenshot.save(image_bytes, format="PNG")
-            image_bytes.seek(0)
-            pil_image = Image.open(image_bytes)
-
-            pil_image.thumbnail(self.canvas_size)
-            wx_image = wx.Image(*pil_image.size)
-            wx_image.SetData(pil_image.convert("RGB").tobytes())
-            self.screenshot_bitmap = wx_image.ConvertToBitmap()
-
-            self.canvas.SetBitmap(self.screenshot_bitmap)
-            self.Layout()
-            self.Refresh()
-        except Exception as e:
-            wx.MessageBox(f"Screenshot error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
 
     def save_screenshot(self, event):
         if self.screenshot_bitmap:
