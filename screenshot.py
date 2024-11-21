@@ -143,6 +143,9 @@ class CoordinatesPanel(wx.Panel):
         # New list control for active tab coordinates
         self.coordinates_listbox = wx.ListBox(self, style=wx.LB_SINGLE)
         left_vbox.Add(self.coordinates_listbox, 1, wx.EXPAND | wx.ALL, 5)
+        # Inside the CoordinatesPanel constructor
+        self.coordinates_listbox.Bind(wx.EVT_LISTBOX, self.on_coordinates_listbox_selection)
+
 
         # Buttons column
         button_vbox = wx.BoxSizer(wx.VERTICAL)
@@ -177,6 +180,33 @@ class CoordinatesPanel(wx.Panel):
         main_hbox.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
 
         self.SetSizer(main_hbox)
+    def on_coordinates_listbox_selection(self, event):
+        """Handle selection of an item in the coordinates list control."""
+        selected_index = self.coordinates_listbox.GetSelection()
+        if selected_index == wx.NOT_FOUND:
+            return  # No selection made
+
+        # Get the corresponding notebook tab
+        current_tab_index = self.notebook.GetSelection()
+        if current_tab_index == wx.NOT_FOUND:
+            return  # No active tab
+
+        current_tab = self.notebook.GetPage(current_tab_index)
+        if not isinstance(current_tab, wx.ScrolledWindow):
+            return  # Ensure the tab is a scrollable panel
+
+        # Scroll to the selected canvas
+        selected_canvas = current_tab.GetChildren()[selected_index]
+        if isinstance(selected_canvas, wx.StaticBitmap):
+            # Ensure the canvas is visible
+            x, y = selected_canvas.GetPosition()
+            current_tab.Scroll(x // 10, y // 10)  # Scroll to the canvas position (scaled by scroll rate)
+            selected_canvas.SetFocus()  # Optional: Set focus to the canvas
+
+            # Update status bar
+            self.GetParent().status_bar.SetStatusText(f"Scrolled to coordinate {selected_index + 1}")
+
+
 
     def on_notebook_page_changed(self, event):
         """Update the coordinates listbox when the notebook tab changes."""
