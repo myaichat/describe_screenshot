@@ -31,20 +31,31 @@ class ThumbnailToggleButton(wx.Panel):
 
         self.SetSizer(self.sizer)
 
-    def on_toggle(self, event):
+    def on_toggle(self, event=None):
         """Handle toggle state changes."""
         if self.button.GetValue():
             # Button is pressed (add red border)
             self.SetBackgroundColour(wx.Colour(255, 0, 0))  # Red border
             self.button.SetBackgroundColour(wx.Colour(240, 240, 240))  # Optional: Distinct button background
-            self.Refresh()  # Apply changes
-            self.GetParent().GetParent().GetParent().status_bar.SetStatusText(f"{self.label} selected (pressed)")
         else:
             # Button is unpressed (remove red border)
             self.SetBackgroundColour(wx.NullColour)  # Default border
             self.button.SetBackgroundColour(wx.NullColour)  # Reset button background
-            self.Refresh()  # Apply changes
-            self.GetParent().GetParent().GetParent().status_bar.SetStatusText(f"{self.label} deselected")
+
+        # Force a UI refresh for both the panel and the button
+        self.Refresh()
+        self.Update()
+        self.button.Refresh()
+        self.button.Update()
+
+        # Update the status bar or any parent-level feedback
+        parent_frame = self.GetParent().GetParent().GetParent()
+        if self.button.GetValue():
+            parent_frame.status_bar.SetStatusText(f"{self.label} selected (pressed)")
+        else:
+            parent_frame.status_bar.SetStatusText(f"{self.label} deselected")
+
+
 
 import wx
 
@@ -77,6 +88,9 @@ class ThumbnailScrollPanel(wx.ScrolledWindow):
         self.sizer.Add(toggle_button, 0, wx.EXPAND | wx.ALL, 5)
         self.Layout()  # Refresh layout
         self.FitInside()  # Ensure the scrollable area fits the new content
+
+        return toggle_button  # Return the created toggle button
+
 
 
     def on_thumbnail_button_toggle(self, event):
@@ -223,19 +237,19 @@ class CoordinatesPanel(wx.Panel):
             wx.MessageBox("No valid coordinates found.", "Error", wx.OK | wx.ICON_ERROR)
             return
 
-        # Avoid adding duplicate thumbnails by ensuring this function is the sole point of thumbnail addition.
         self.current_coordinates = coordinates  # Store the selected coordinates
 
         # Create a unique label
         new_label = f"Coordinates {len(self.thumbnail_scroll_panel.sizer.GetChildren()) + 1}"
 
-        # Check if the thumbnail already exists in the thumbnail panel
-        if new_label in getattr(self, 'coordinates_list', {}):
-            wx.MessageBox(f"Coordinates '{new_label}' already exist!", "Info", wx.OK | wx.ICON_INFORMATION)
-            return
-
         # Add thumbnail to the scroll panel
-        self.thumbnail_scroll_panel.add_thumbnail_button(thumbnail, label=new_label)
+        toggle_button = self.thumbnail_scroll_panel.add_thumbnail_button(thumbnail, label=new_label)
+
+        # Automatically toggle the newly created button
+        if toggle_button:
+            # Ensure the toggle button is activated
+            toggle_button.button.SetValue(True)  # Programmatically set the toggle to "on"
+            toggle_button.on_toggle()  # Call the toggle handler to ensure UI updates
 
         # Store the selected coordinates in the coordinates list
         if not hasattr(self, 'coordinates_list'):
@@ -243,7 +257,7 @@ class CoordinatesPanel(wx.Panel):
         self.coordinates_list[new_label] = self.current_coordinates
 
         # Update the status bar
-        self.GetParent().status_bar.SetStatusText(f"Added new coordinates as '{new_label}'")
+        self.GetParent().status_bar.SetStatusText(f"Added and toggled new coordinates as '{new_label}'")
 
 
 
@@ -252,7 +266,10 @@ class CoordinatesPanel(wx.Panel):
 
 
 
-    def add_thumbnail_button(self, thumbnail, label="Thumbnail"):
+
+
+
+    def _add_thumbnail_button(self, thumbnail, label="Thumbnail"):
         """Add a thumbnail button to the scrollable panel."""
         bitmap = wx.Bitmap.FromBuffer(thumbnail.width, thumbnail.height, thumbnail.tobytes())
         self.thumbnail_scroll_panel.add_thumbnail_button(bitmap, label)
