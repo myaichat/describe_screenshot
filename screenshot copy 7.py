@@ -281,46 +281,23 @@ class CoordinatesPanel(wx.Panel):
         self.group_list.SetSelection(self.group_list.GetCount() - 1)
 
     def take_single_screenshot(self):
-        """Take a single screenshot for all toggled thumbnail buttons and create a single group entry."""
-        if not hasattr(self, 'coordinates_list') or not self.coordinates_list:
-            wx.MessageBox("No coordinates defined!", "Error", wx.OK | wx.ICON_ERROR)
-            return
+        """Take a single screenshot, clear the notebook, and add it as a new list item."""
+        # Clear the notebook to reset the display
         self.clear_tabs()
-        toggled_buttons = []
-        for child in self.thumbnail_scroll_panel.sizer.GetChildren():
-            button_panel = child.GetWindow()
-            if isinstance(button_panel, ThumbnailToggleButton):
-                if button_panel.button.GetValue():  # Check if the button is toggled
-                    toggled_buttons.append(button_panel.label)
 
-        if not toggled_buttons:
-            wx.MessageBox("No toggled thumbnail buttons found!", "Info", wx.OK | wx.ICON_INFORMATION)
-            return
+        # Take the screenshot
+        bitmap = self.take_screenshot(self.coordinates, return_bitmap=True)
 
-        # Create a group for this pass
-        group_name = f"Group {len(self.screenshot_groups) + 1}"
-        self.screenshot_groups[group_name] = []
+        # Create a new list item for the screenshot
+        new_item_name = f"Single Screenshot {self.group_list.GetCount() + 1}"
+        self.add_list_item(new_item_name)
 
-        for label in toggled_buttons:
-            coordinates = self.coordinates_list.get(label)
-            if coordinates:
-                # Take a screenshot for the current set of coordinates
-                bitmap = self.take_screenshot(coordinates, return_bitmap=True)
+        # Add the screenshot to the group list and notebook
+        self.screenshot_groups[new_item_name] = [bitmap]
+        self.add_screenshot_tab(bitmap)
 
-                # Add the screenshot to the group
-                self.screenshot_groups[group_name].append(bitmap)
-
-                # Add the screenshot as a new tab
-                self.add_screenshot_tab(bitmap, label=f"Screenshot ({label})")
-
-        # Add the group to the group list control
-        self.add_list_item(group_name)
-
-        # Update the status bar to reflect the action
-        self.GetParent().status_bar.SetStatusText(
-            f"Captured {len(self.screenshot_groups[group_name])} screenshots in '{group_name}'."
-        )
-
+        # Update the status bar to indicate the action
+        self.GetParent().status_bar.SetStatusText(f"Added a new single screenshot: '{new_item_name}'")
 
 
     def take_group_screenshot(self):
