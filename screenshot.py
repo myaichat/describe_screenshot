@@ -94,13 +94,12 @@ class ThumbnailScrollPanel(wx.ScrolledWindow):
 class CoordinatesPanel(wx.Panel):
     def __init__(self, parent, coordinates, callback, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
-        
+
         self.coordinates = coordinates
         self.callback = callback
-        self.screenshot_groups = {}  # Dictionary to store groups of screenshots
+        self.screenshot_groups = {}
         self.current_group = None
-        self.current_coordinates = None  # Add this to store the selected coordinates
-
+        self.current_coordinates = None
 
         # Main horizontal sizer for overall layout
         main_hbox = wx.BoxSizer(wx.HORIZONTAL)
@@ -114,10 +113,9 @@ class CoordinatesPanel(wx.Panel):
 
         # Add New Coordinates button
         add_coordinates_button = wx.Button(self, label="Add New Coordinates")
-        add_coordinates_button.Bind(wx.EVT_BUTTON, self.add_new_coordinates)  # Attach button event
+        add_coordinates_button.Bind(wx.EVT_BUTTON, self.add_new_coordinates)
         thumbnail_vbox.Add(add_coordinates_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
-        # Add thumbnail_vbox to main_hbox
         main_hbox.Add(thumbnail_vbox, 0, wx.EXPAND | wx.ALL, 5)
 
         # Vertical sizer for group list and buttons
@@ -127,6 +125,10 @@ class CoordinatesPanel(wx.Panel):
         self.group_list = wx.ListBox(self, style=wx.LB_SINGLE)
         self.group_list.Bind(wx.EVT_LISTBOX, self.on_group_selected)
         left_vbox.Add(self.group_list, 1, wx.EXPAND | wx.ALL, 5)
+
+        # New list control for active tab coordinates
+        self.coordinates_listbox = wx.ListBox(self, style=wx.LB_SINGLE)
+        left_vbox.Add(self.coordinates_listbox, 1, wx.EXPAND | wx.ALL, 5)
 
         # Buttons column
         button_vbox = wx.BoxSizer(wx.VERTICAL)
@@ -151,17 +153,34 @@ class CoordinatesPanel(wx.Panel):
         save_btn.Bind(wx.EVT_BUTTON, self.save_screenshot)
         button_vbox.Add(save_btn, flag=wx.ALL, border=5)
 
-        # Add button_vbox to the left vertical layout
         left_vbox.Add(button_vbox, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 5)
 
-        # Add left_vbox to the main horizontal sizer
         main_hbox.Add(left_vbox, 0, wx.EXPAND | wx.ALL, 5)
 
         # Notebook for displaying screenshots
         self.notebook = wx.Notebook(self)
+        self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_notebook_page_changed)
         main_hbox.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
 
         self.SetSizer(main_hbox)
+
+    def on_notebook_page_changed(self, event):
+        """Update the coordinates listbox when the notebook tab changes."""
+        self.coordinates_listbox.Clear()
+
+        # Get the current group name
+        current_tab_index = self.notebook.GetSelection()
+        if current_tab_index == wx.NOT_FOUND:
+            return
+
+        tab_label = self.notebook.GetPageText(current_tab_index)
+        group_name = tab_label.split(" ")[-1].strip("()")
+
+        if group_name in self.screenshot_groups:
+            for i, _ in enumerate(self.screenshot_groups[group_name], start=1):
+                self.coordinates_listbox.Append(f"coord_{i}")
+
+        event.Skip()  # Allow the default behavior
 
     def add_new_coordinates(self, event):
         """Open overlay window to define new screenshot coordinates."""
@@ -281,45 +300,87 @@ class CoordinatesPanel(wx.Panel):
         self.group_list.SetSelection(self.group_list.GetCount() - 1)
 
     def take_single_screenshot(self):
-        """Take a single screenshot for all toggled thumbnail buttons and create a single group entry."""
+        """Take screenshots for all toggled thumbnail buttons and display them in a single scrollable panel."""
+        # Clear the coordinates list box for the new group
+        self.coordinates_listbox.Clear()
+
         if not hasattr(self, 'coordinates_list') or not self.coordinates_list:
             wx.MessageBox("No coordinates defined!", "Error", wx.OK | wx.ICON_ERROR)
             return
-        self.clear_tabs()
+
+        # Identify toggled thumbnail buttons
         toggled_buttons = []
         for child in self.thumbnail_scroll_panel.sizer.GetChildren():
             button_panel = child.GetWindow()
             if isinstance(button_panel, ThumbnailToggleButton):
-                if button_panel.button.GetValue():  # Check if the button is toggled
+                if button_panel.button.GetValue():  # Check if toggled
                     toggled_buttons.append(button_panel.label)
 
         if not toggled_buttons:
             wx.MessageBox("No toggled thumbnail buttons found!", "Info", wx.OK | wx.ICON_INFORMATION)
             return
 
-        # Create a group for this pass
+        # Generate a group name for this screenshot pass
         group_name = f"Group {len(self.screenshot_groups) + 1}"
-        self.screenshot_groups[group_name] = []
 
-        for label in toggled_buttons:
+        # Add a new group entry in the group list
+        self.add_group(group_name)
+
+        # Ensure the scrollable panel exists for the group
+        if not hasattr(self, 'single_screenshot_tab') or self.single_screenshot_tab is None:
+            # Create a new scrollable tab
+            self.single_screenshot_tab = wx.ScrolledWindow(self.notebook)
+            self.single_screenshot_tab.SetScrollRate(10, 10)
+            self.single_screenshot_tab_sizer = wx.BoxSizer(wx.VERTICAL)
+            self.single_screenshot_tab.SetSizer(self.single_screenshot_tab_sizer)
+            self.notebook.AddPage(self.single_screenshot_tab, f"Single Screenshots ({group_name})")
+        else:
+            # Clear the existing content safely
+            for child in self.single_screenshot_tab_sizer.GetChildren():
+                child.GetWindow().Destroy()
+            self.single_screenshot_tab_sizer.Clear()
+
+        # Add new screenshots to the scrollable panel and populate coordinates list
+        self.coordinates_listbox.Clear()  # Clear for new group
+        for i, label in enumerate(toggled_buttons, start=1):
             coordinates = self.coordinates_list.get(label)
             if coordinates:
-                # Take a screenshot for the current set of coordinates
                 bitmap = self.take_screenshot(coordinates, return_bitmap=True)
 
+                # Add screenshot to the scrollable panel
+                canvas = wx.StaticBitmap(self.single_screenshot_tab, bitmap=bitmap)
+                self.single_screenshot_tab_sizer.Add(canvas, 0, wx.EXPAND | wx.ALL, 5)
+
                 # Add the screenshot to the group
-                self.screenshot_groups[group_name].append(bitmap)
+                if group_name in self.screenshot_groups:
+                    self.screenshot_groups[group_name].append(bitmap)
+                else:
+                    self.screenshot_groups[group_name] = [bitmap]
 
-                # Add the screenshot as a new tab
-                self.add_screenshot_tab(bitmap, label=f"Screenshot ({label})")
+                # Add an entry to the coordinates listbox
+                self.coordinates_listbox.Append(f"coord_{i} ({label})")
 
-        # Add the group to the group list control
-        self.add_list_item(group_name)
+        # Refresh the scrollable panel layout
+        self.single_screenshot_tab.Layout()
+        self.single_screenshot_tab.FitInside()
 
-        # Update the status bar to reflect the action
+        # Set the tab with screenshots as the active tab
+        self.notebook.SetSelection(self.notebook.GetPageCount() - 1)
+
+        # Update the status bar
         self.GetParent().status_bar.SetStatusText(
-            f"Captured {len(self.screenshot_groups[group_name])} screenshots in '{group_name}'."
+            f"Captured {len(toggled_buttons)} screenshots in group '{group_name}'."
         )
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -431,13 +492,47 @@ class CoordinatesPanel(wx.Panel):
 
 
     def on_group_selected(self, event):
-        """Handle group selection from the list."""
+        """Handle group selection from the list and display all screenshots for the group in one scrollable tab."""
         selected_group = self.group_list.GetStringSelection()
-        if selected_group:
-            self.current_group = selected_group
-            self.clear_tabs()
+        if not selected_group:
+            return
+
+        self.current_group = selected_group
+
+        # Clear the tabs in the notebook
+        self.clear_tabs()
+
+        # Ensure the scrollable panel exists for the group
+        group_tab = wx.ScrolledWindow(self.notebook)
+        group_tab.SetScrollRate(10, 10)
+        group_tab_sizer = wx.BoxSizer(wx.VERTICAL)
+        group_tab.SetSizer(group_tab_sizer)
+
+        # Add screenshots for the selected group
+        if selected_group in self.screenshot_groups:
             for bitmap in self.screenshot_groups[selected_group]:
-                self.add_screenshot_tab(bitmap)
+                # Add each screenshot to the scrollable panel
+                canvas = wx.StaticBitmap(group_tab, bitmap=bitmap)
+                group_tab_sizer.Add(canvas, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Add the group tab to the notebook
+        self.notebook.AddPage(group_tab, f"Group: {selected_group}")
+        group_tab.Layout()
+        group_tab.FitInside()
+
+        # Set the new tab as the active tab
+        self.notebook.SetSelection(self.notebook.GetPageCount() - 1)
+
+        # Update the coordinates list for the selected group
+        self.coordinates_listbox.Clear()
+        if selected_group in self.screenshot_groups:
+            for i, _ in enumerate(self.screenshot_groups[selected_group], start=1):
+                self.coordinates_listbox.Append(f"coord_{i}")
+
+        # Update the status bar with the selected group
+        self.GetParent().status_bar.SetStatusText(f"Selected group: '{selected_group}'")
+
+
 
     def add_group(self, group_name):
         """Add a new screenshot group."""
@@ -450,10 +545,10 @@ class CoordinatesPanel(wx.Panel):
         self.screenshot_groups[group_name] = []
         self.add_list_item(group_name)
         self.current_group = group_name
-        self.clear_tabs()
 
         # Update the status bar
         self.GetParent().status_bar.SetStatusText(f"Started new group: '{group_name}'")
+
 
 
     def update_coordinates(self, new_coordinates):
