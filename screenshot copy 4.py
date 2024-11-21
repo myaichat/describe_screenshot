@@ -9,64 +9,6 @@ ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 from include.Controls import MonitorSelectionDialog, ScreenshotOverlay
 
-import wx
-
-
-class ThumbnailToggleButton(wx.Panel):
-    """A custom toggle button with a thumbnail and a red border on toggle."""
-    def __init__(self, parent, bitmap, label="Thumbnail", *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
-
-        self.SetBackgroundColour(wx.NullColour)  # Default background color
-        self.label = label
-
-        # Create a sizer for the panel
-        self.sizer = wx.BoxSizer(wx.VERTICAL)
-
-        # Create the toggle button
-        self.button = wx.ToggleButton(self, label="")
-        self.button.SetBitmap(bitmap)  # Set the bitmap for the button
-        self.button.Bind(wx.EVT_TOGGLEBUTTON, self.on_toggle)
-        self.sizer.Add(self.button, 1, wx.EXPAND)
-
-        self.SetSizer(self.sizer)
-
-    def on_toggle(self, event):
-        """Handle toggle state changes."""
-        if self.button.GetValue():
-            # Button is pressed (add red border)
-            self.SetBackgroundColour(wx.Colour(255, 0, 0))  # Red border
-            self.button.SetBackgroundColour(wx.Colour(240, 240, 240))  # Optional: Distinct button background
-            self.Refresh()  # Apply changes
-            self.GetParent().GetParent().GetParent().status_bar.SetStatusText(f"{self.label} selected (pressed)")
-        else:
-            # Button is unpressed (remove red border)
-            self.SetBackgroundColour(wx.NullColour)  # Default border
-            self.button.SetBackgroundColour(wx.NullColour)  # Reset button background
-            self.Refresh()  # Apply changes
-            self.GetParent().GetParent().GetParent().status_bar.SetStatusText(f"{self.label} deselected")
-
-import wx
-
-
-class ThumbnailScrollPanel(wx.ScrolledWindow):
-    """A scrollable panel for displaying ThumbnailToggleButtons."""
-    def __init__(self, parent, *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
-
-        # Create a vertical sizer to hold the toggle buttons
-        self.sizer = wx.BoxSizer(wx.VERTICAL)
-
-        # Set up the scrolling properties
-        self.SetScrollRate(10, 10)
-        self.SetSizer(self.sizer)
-
-    def add_thumbnail_button(self, bitmap, label="Thumbnail"):
-        """Add a new ThumbnailToggleButton to the scrollable panel."""
-        toggle_button = ThumbnailToggleButton(self, bitmap=bitmap, label=label)
-        self.sizer.Add(toggle_button, 0, wx.EXPAND | wx.ALL, 5)
-        self.Layout()  # Refresh layout
-        self.FitInside()  # Ensure the scrollable area fits the new content
 
 
 class CoordinatesPanel(wx.Panel):
@@ -81,9 +23,9 @@ class CoordinatesPanel(wx.Panel):
         # Main horizontal sizer for overall layout
         main_hbox = wx.BoxSizer(wx.HORIZONTAL)
 
-        # Add the scrollable panel for thumbnails
-        self.thumbnail_scroll_panel = ThumbnailScrollPanel(self, size=(150, -1))
-        main_hbox.Add(self.thumbnail_scroll_panel, 0, wx.EXPAND | wx.ALL, 5)
+        # Vertical sizer for thumbnail buttons
+        self.thumbnail_sizer = wx.BoxSizer(wx.VERTICAL)
+        main_hbox.Add(self.thumbnail_sizer, 0, wx.EXPAND | wx.ALL, 5)
 
         # Vertical sizer for group list and buttons
         left_vbox = wx.BoxSizer(wx.VERTICAL)
@@ -129,25 +71,15 @@ class CoordinatesPanel(wx.Panel):
         self.SetSizer(main_hbox)
 
     def add_thumbnail_button(self, thumbnail, label="Thumbnail"):
-        """Add a thumbnail button to the scrollable panel."""
-        bitmap = wx.Bitmap.FromBuffer(thumbnail.width, thumbnail.height, thumbnail.tobytes())
-        self.thumbnail_scroll_panel.add_thumbnail_button(bitmap, label)
-
-
-    def _add_thumbnail_button(self, thumbnail, label="Thumbnail"):
-        """Add a ThumbnailToggleButton with a thumbnail to the thumbnail sizer."""
+        """Add a button with a thumbnail to the thumbnail sizer."""
         # Convert PIL image to wx.Bitmap
         bitmap = wx.Bitmap.FromBuffer(thumbnail.width, thumbnail.height, thumbnail.tobytes())
 
-        # Create an instance of ThumbnailToggleButton
-        toggle_button = ThumbnailToggleButton(self, bitmap=bitmap, label=label)
-
-        # Add the toggle button container to the thumbnail sizer
-        self.thumbnail_sizer.Add(toggle_button, 0, wx.EXPAND | wx.ALL, 5)
+        # Create a button with the thumbnail
+        btn = wx.BitmapButton(self, bitmap=bitmap)
+        btn.SetLabel(label)
+        self.thumbnail_sizer.Add(btn, 0, wx.EXPAND | wx.ALL, 5)
         self.Layout()  # Refresh the layout to display the new button
-
-
-
 
 
 
@@ -382,7 +314,6 @@ class ScreenshotApp(wx.App):
             return True
         except Exception as e:
             wx.MessageBox(f"Error during initialization: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-            raise e
             return False
 
     def start_hotkey_listener(self):
@@ -491,7 +422,7 @@ class ScreenshotApp(wx.App):
         else:
             wx.MessageBox("No group is currently active.", "Group Error", wx.OK | wx.ICON_ERROR)
 
-    def _show_coordinates_frame(self, pil_image, thumbnail):
+    def show_coordinates_frame(self, pil_image, thumbnail):
         # Ensure the CoordinatesFrame exists
         if not self.coordinates_frame:
             wx.MessageBox("CoordinatesFrame is not available!", "Error", wx.OK | wx.ICON_ERROR)
@@ -505,61 +436,51 @@ class ScreenshotApp(wx.App):
 
 
     def show_monitor_selection_dialog(self):
-        """Show dialog to select a monitor."""
         dialog = MonitorSelectionDialog(None)
         dialog.CenterOnScreen()
         result = dialog.ShowModal()
         if result == wx.ID_OK:
-            # Correctly retrieve the selected monitor index as an integer
-            selected_monitor = dialog.radio_box.GetSelection() + 1  # Monitors in mss start from 1
+            selected_monitor = dialog.radio_box.GetSelection()
             dialog.Destroy()
             print(f"Selected Monitor: {selected_monitor}")
+            
+            # Ensure the CoordinatesFrame is initialized
+            if not self.coordinates_frame:
+                coordinates = (0, 0, 800, 600)  # Default coordinates, modify as needed
+                self.coordinates_frame = CoordinatesFrame(coordinates, self.show_monitor_selection_dialog, None)
+                self.coordinates_frame.Show()
+
             self.show_overlay(selected_monitor)
         else:
             dialog.Destroy()
             self.ExitMainLoop()
 
+
     def show_overlay(self, monitor_index):
-        """Open the overlay on the selected monitor."""
         try:
             print("Opening overlay...")
-            if self.coordinates_frame is None:
-                self.coordinates_frame = CoordinatesFrame(coordinates=(0, 0, 1920, 1080),  # Default resolution
-                                                        callback=self.show_monitor_selection_dialog,
-                                                        parent=None)
-                self.coordinates_frame.Hide()
-
             self.overlay = ScreenshotOverlay(
-                callback=self.handle_full_screenshot,  # Pass the callback
-                monitor_index=monitor_index,           # Pass the monitor index
-                coordinates_frame=self.coordinates_frame,  # Pass the coordinates_frame
-                parent=None,
-                style=wx.NO_BORDER,
+                self.handle_full_screenshot,  # Updated callback method
+                monitor_index,
+                None,
+                style=wx.NO_BORDER
             )
             self.overlay.Show()
         except Exception as e:
             wx.MessageBox(f"Error opening overlay: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-            raise e
-
-
-
 
 
 
 
 
     def handle_full_screenshot(self, pil_image, thumbnail):
-        """Handle the full screenshot and update the UI."""
         if self.coordinates_frame is None:
             wx.MessageBox("CoordinatesFrame is not available!", "Error", wx.OK | wx.ICON_ERROR)
             return
 
-        # Add thumbnail to the left-side button area
-        self.coordinates_frame.panel.add_thumbnail_button(thumbnail, label="Full Screenshot")
-
-        # Update the status bar to indicate the screenshot was captured
-        self.coordinates_frame.status_bar.SetStatusText("Full screenshot captured.")
-
+        # Add the thumbnail to the CoordinatesPanel
+        panel = self.coordinates_frame.panel
+        panel.add_thumbnail_button(thumbnail, "Thumbnail")
 
 
 

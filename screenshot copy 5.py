@@ -9,64 +9,6 @@ ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 from include.Controls import MonitorSelectionDialog, ScreenshotOverlay
 
-import wx
-
-
-class ThumbnailToggleButton(wx.Panel):
-    """A custom toggle button with a thumbnail and a red border on toggle."""
-    def __init__(self, parent, bitmap, label="Thumbnail", *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
-
-        self.SetBackgroundColour(wx.NullColour)  # Default background color
-        self.label = label
-
-        # Create a sizer for the panel
-        self.sizer = wx.BoxSizer(wx.VERTICAL)
-
-        # Create the toggle button
-        self.button = wx.ToggleButton(self, label="")
-        self.button.SetBitmap(bitmap)  # Set the bitmap for the button
-        self.button.Bind(wx.EVT_TOGGLEBUTTON, self.on_toggle)
-        self.sizer.Add(self.button, 1, wx.EXPAND)
-
-        self.SetSizer(self.sizer)
-
-    def on_toggle(self, event):
-        """Handle toggle state changes."""
-        if self.button.GetValue():
-            # Button is pressed (add red border)
-            self.SetBackgroundColour(wx.Colour(255, 0, 0))  # Red border
-            self.button.SetBackgroundColour(wx.Colour(240, 240, 240))  # Optional: Distinct button background
-            self.Refresh()  # Apply changes
-            self.GetParent().GetParent().GetParent().status_bar.SetStatusText(f"{self.label} selected (pressed)")
-        else:
-            # Button is unpressed (remove red border)
-            self.SetBackgroundColour(wx.NullColour)  # Default border
-            self.button.SetBackgroundColour(wx.NullColour)  # Reset button background
-            self.Refresh()  # Apply changes
-            self.GetParent().GetParent().GetParent().status_bar.SetStatusText(f"{self.label} deselected")
-
-import wx
-
-
-class ThumbnailScrollPanel(wx.ScrolledWindow):
-    """A scrollable panel for displaying ThumbnailToggleButtons."""
-    def __init__(self, parent, *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
-
-        # Create a vertical sizer to hold the toggle buttons
-        self.sizer = wx.BoxSizer(wx.VERTICAL)
-
-        # Set up the scrolling properties
-        self.SetScrollRate(10, 10)
-        self.SetSizer(self.sizer)
-
-    def add_thumbnail_button(self, bitmap, label="Thumbnail"):
-        """Add a new ThumbnailToggleButton to the scrollable panel."""
-        toggle_button = ThumbnailToggleButton(self, bitmap=bitmap, label=label)
-        self.sizer.Add(toggle_button, 0, wx.EXPAND | wx.ALL, 5)
-        self.Layout()  # Refresh layout
-        self.FitInside()  # Ensure the scrollable area fits the new content
 
 
 class CoordinatesPanel(wx.Panel):
@@ -81,9 +23,9 @@ class CoordinatesPanel(wx.Panel):
         # Main horizontal sizer for overall layout
         main_hbox = wx.BoxSizer(wx.HORIZONTAL)
 
-        # Add the scrollable panel for thumbnails
-        self.thumbnail_scroll_panel = ThumbnailScrollPanel(self, size=(150, -1))
-        main_hbox.Add(self.thumbnail_scroll_panel, 0, wx.EXPAND | wx.ALL, 5)
+        # Vertical sizer for thumbnail buttons
+        self.thumbnail_sizer = wx.BoxSizer(wx.VERTICAL)
+        main_hbox.Add(self.thumbnail_sizer, 0, wx.EXPAND | wx.ALL, 5)
 
         # Vertical sizer for group list and buttons
         left_vbox = wx.BoxSizer(wx.VERTICAL)
@@ -129,25 +71,15 @@ class CoordinatesPanel(wx.Panel):
         self.SetSizer(main_hbox)
 
     def add_thumbnail_button(self, thumbnail, label="Thumbnail"):
-        """Add a thumbnail button to the scrollable panel."""
-        bitmap = wx.Bitmap.FromBuffer(thumbnail.width, thumbnail.height, thumbnail.tobytes())
-        self.thumbnail_scroll_panel.add_thumbnail_button(bitmap, label)
-
-
-    def _add_thumbnail_button(self, thumbnail, label="Thumbnail"):
-        """Add a ThumbnailToggleButton with a thumbnail to the thumbnail sizer."""
+        """Add a button with a thumbnail to the thumbnail sizer."""
         # Convert PIL image to wx.Bitmap
         bitmap = wx.Bitmap.FromBuffer(thumbnail.width, thumbnail.height, thumbnail.tobytes())
 
-        # Create an instance of ThumbnailToggleButton
-        toggle_button = ThumbnailToggleButton(self, bitmap=bitmap, label=label)
-
-        # Add the toggle button container to the thumbnail sizer
-        self.thumbnail_sizer.Add(toggle_button, 0, wx.EXPAND | wx.ALL, 5)
+        # Create a button with the thumbnail
+        btn = wx.BitmapButton(self, bitmap=bitmap)
+        btn.SetLabel(label)
+        self.thumbnail_sizer.Add(btn, 0, wx.EXPAND | wx.ALL, 5)
         self.Layout()  # Refresh the layout to display the new button
-
-
-
 
 
 
@@ -491,7 +423,7 @@ class ScreenshotApp(wx.App):
         else:
             wx.MessageBox("No group is currently active.", "Group Error", wx.OK | wx.ICON_ERROR)
 
-    def _show_coordinates_frame(self, pil_image, thumbnail):
+    def show_coordinates_frame(self, pil_image, thumbnail):
         # Ensure the CoordinatesFrame exists
         if not self.coordinates_frame:
             wx.MessageBox("CoordinatesFrame is not available!", "Error", wx.OK | wx.ICON_ERROR)

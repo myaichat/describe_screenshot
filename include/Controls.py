@@ -1,6 +1,6 @@
 import wx
 import pyautogui
-from PIL import Image
+from PIL import Image, ImageDraw
 import io
 import ctypes
 ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -59,79 +59,135 @@ class MonitorSelectionDialog(wx.Dialog):
 
 
 
+import wx
+import mss
+
+import wx
+import mss
+from PIL import Image, ImageDraw
+
+import wx
+import mss
+from PIL import Image, ImageDraw
+
+
 class ScreenshotOverlay(wx.Frame):
-    def __init__(self, callback, monitor_index, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        
+    def __init__(self, callback, monitor_index, coordinates_frame, parent=None, style=wx.NO_BORDER):
+        super().__init__(parent, style=style)
+
         self.callback = callback
         self.monitor_index = monitor_index
-        
-        # Get selected monitor's geometry
-        display = wx.Display(monitor_index)
-        self.geometry = display.GetGeometry()
-        if 1:
+        self.coordinates_frame = coordinates_frame  # Store CoordinatesFrame reference
 
-            print(f"Monitor {monitor_index}: {self.geometry}")
+        # Initialize attributes
+        self.start_pos = None  # Starting position of the selection rectangle
+        self.current_pos = None  # Current position of the mouse
+        self.is_selecting = False  # Flag to track if the user is selecting
 
-        
-        self.SetSize(self.geometry.GetSize())
-        self.SetPosition(self.geometry.GetTopLeft())
-        self.SetWindowStyle(wx.STAY_ON_TOP | wx.FRAME_NO_TASKBAR | wx.FRAME_SHAPED)
-        self.SetTransparent(150)
-        
-        self.start_pos = None
-        self.current_pos = None
-        
+        # Screen dimensions setup
+        with mss.mss() as sct:
+            monitor = sct.monitors[monitor_index]
+            self.screen_width = monitor["width"]
+            self.screen_height = monitor["height"]
+            self.monitor_left = monitor["left"]
+            self.monitor_top = monitor["top"]
+
+        # Set frame size to match the monitor
+        self.SetSize((self.screen_width, self.screen_height))
+        self.SetPosition((self.monitor_left, self.monitor_top))
+        self.SetTransparent(100)
+
+        # Bind events
         self.Bind(wx.EVT_LEFT_DOWN, self.on_left_down)
+        self.Bind(wx.EVT_MOTION, self.on_mouse_move)
         self.Bind(wx.EVT_LEFT_UP, self.on_left_up)
-        self.Bind(wx.EVT_MOTION, self.on_mouse_drag)
         self.Bind(wx.EVT_PAINT, self.on_paint)
 
-    def get_relative_pos(self, screen_pos):
-        client_pos = self.ScreenToClient(screen_pos)
-        return (client_pos.x, client_pos.y)
-
-    def on_left_down(self, event):
-        self.start_pos = self.get_relative_pos(wx.GetMousePosition())
-        self.current_pos = self.start_pos
-        self.Refresh()
-
-    def on_mouse_drag(self, event):
-        if event.Dragging() and event.LeftIsDown() and self.start_pos:
-            self.current_pos = self.get_relative_pos(wx.GetMousePosition())
-            self.Refresh()
-
-    def on_left_up(self, event):
+        self.ShowFullScreen(True)
+    def on_close(self, event):
+        """Ensure the CoordinatesFrame is shown when the overlay is closed."""
+        if self.coordinates_frame:
+            self.coordinates_frame.Show()  # Show the CoordinatesFrame again
+        self.Destroy()
+    def on_paint(self, event):
+        """Draw the selection rectangle during the paint event."""
         if self.start_pos and self.current_pos:
+            dc = wx.PaintDC(self)
+            brush = wx.Brush(wx.Colour(0, 255, 0, 50))  # Transparent green brush
+            pen = wx.Pen(wx.Colour(0, 255, 0), width=3)  # Green pen for the border
+            dc.SetBrush(brush)
+            dc.SetPen(pen)
+
             x1, y1 = self.start_pos
             x2, y2 = self.current_pos
             x = min(x1, x2)
             y = min(y1, y2)
             width = abs(x2 - x1)
             height = abs(y2 - y1)
-            
-            # Convert back to screen coordinates
-            screen_pos = self.ClientToScreen(wx.Point(x, y))
-            
-            self.callback((screen_pos.x, screen_pos.y, width, height))
-            self.Close()
 
-    def on_paint(self, event):
-        if self.start_pos and self.current_pos:
-            dc = wx.PaintDC(self)
-            gc = wx.GraphicsContext.Create(dc)
-            
-            if gc:
-                x1, y1 = self.start_pos
-                x2, y2 = self.current_pos
-                x = min(x1, x2)
-                y = min(y1, y2)
-                width = abs(x2 - x1)
-                height = abs(y2 - y1)
+            dc.DrawRectangle(x, y, width, height)
 
-                gc.SetBrush(wx.Brush(wx.Colour(0, 255, 0, 50)))
-                gc.SetPen(wx.Pen(wx.Colour(0, 255, 0), 2))
-                gc.DrawRectangle(x, y, width, height)
+    def on_left_down(self, event):
+        """Start the selection rectangle."""
+        self.start_pos = event.GetPosition()
+        self.current_pos = self.start_pos
+        self.is_selecting = True
+        self.Refresh()  # Trigger a repaint to start drawing
+
+    def on_mouse_move(self, event):
+        """Update the selection rectangle as the mouse moves."""
+        if self.is_selecting:
+            self.current_pos = event.GetPosition()
+            self.Refresh()  # Trigger a repaint to update the rectangle
+
+    def on_left_up(self, event):
+        """Finalize the selection and capture the screenshot."""
+        self.is_selecting = False
+        self.current_pos = event.GetPosition()
+        self.capture_screenshot_with_selection()
+
+    def capture_screenshot_with_selection(self):
+        """Capture the screen and overlay the selection rectangle."""
+        if not self.start_pos or not self.current_pos:
+            wx.MessageBox("Invalid selection area.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+
+        x1, y1 = self.start_pos
+        x2, y2 = self.current_pos
+        x = min(x1, x2) + self.monitor_left
+        y = min(y1, y2) + self.monitor_top
+        width = abs(x2 - x1)
+        height = abs(y2 - y1)
+
+        with mss.mss() as sct:
+            monitor = {
+                "top": self.monitor_top,
+                "left": self.monitor_left,
+                "width": self.screen_width,
+                "height": self.screen_height,
+            }
+            screenshot = sct.grab(monitor)
+
+            # Convert to PIL image
+            pil_image = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
+
+            # Draw the green rectangle on the image
+            draw = ImageDraw.Draw(pil_image)
+            draw.rectangle([x, y, x + width, y + height], outline="green", width=5)
+
+            # Create a thumbnail
+            thumbnail = pil_image.copy()
+            thumbnail.thumbnail((100, 100))
+
+            # Pass the screenshot and thumbnail to the callback
+            self.callback(pil_image, thumbnail)
+            if self.coordinates_frame:
+                self.coordinates_frame.Show()            
+            self.Destroy()
+
+
+
+
 
 
 
