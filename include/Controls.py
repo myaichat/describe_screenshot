@@ -106,9 +106,11 @@ class ScreenshotOverlay(wx.Frame):
         self.ShowFullScreen(True)
     def on_close(self, event):
         """Ensure the CoordinatesFrame is shown when the overlay is closed."""
+        print("ScreenshotOverlay on_close called")  # Debug print
         if self.coordinates_frame:
-            self.coordinates_frame.Show()  # Show the CoordinatesFrame again
+            self.coordinates_frame.GetParent().Show()  # Ensure the main frame is shown
         self.Destroy()
+        event.Skip()  # Propagate the close event
     def on_paint(self, event):
         """Draw the selection rectangle during the paint event."""
         if self.start_pos and self.current_pos:
@@ -147,18 +149,25 @@ class ScreenshotOverlay(wx.Frame):
         self.capture_screenshot_with_selection()
 
     def capture_screenshot_with_selection(self):
-        """Capture the screen and overlay the selection rectangle."""
+        """Capture the full monitor with the green rectangle."""
         if not self.start_pos or not self.current_pos:
-            wx.MessageBox("Invalid selection area.", "Error", wx.OK | wx.ICON_ERROR)
+            wx.MessageBox("No valid coordinates found.", "Error", wx.OK | wx.ICON_ERROR)
             return
 
+        # Calculate selection rectangle coordinates
         x1, y1 = self.start_pos
         x2, y2 = self.current_pos
-        x = min(x1, x2) + self.monitor_left
-        y = min(y1, y2) + self.monitor_top
+        x = min(x1, x2)
+        y = min(y1, y2)
         width = abs(x2 - x1)
         height = abs(y2 - y1)
 
+        if width == 0 or height == 0:
+            wx.MessageBox("Selection area must have a width and height greater than zero.", "Error", wx.OK | wx.ICON_ERROR)
+            self.Close()
+            return
+
+        # Capture the full monitor
         with mss.mss() as sct:
             monitor = {
                 "top": self.monitor_top,
@@ -168,22 +177,32 @@ class ScreenshotOverlay(wx.Frame):
             }
             screenshot = sct.grab(monitor)
 
-            # Convert to PIL image
+            # Convert to PIL Image
             pil_image = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
 
-            # Draw the green rectangle on the image
+            # Draw the selection rectangle
             draw = ImageDraw.Draw(pil_image)
-            draw.rectangle([x, y, x + width, y + height], outline="green", width=5)
+            draw.rectangle(
+                [x + self.monitor_left, y + self.monitor_top, x + width + self.monitor_left, y + height + self.monitor_top],
+                outline="green",
+                width=5,
+            )
 
-            # Create a thumbnail
+            # Create a thumbnail of the full screen
             thumbnail = pil_image.copy()
             thumbnail.thumbnail((100, 100))
 
-            # Pass the screenshot and thumbnail to the callback
-            self.callback(pil_image, thumbnail)
+            # Pass coordinates and thumbnail to the callback
+            coordinates = (x + self.monitor_left, y + self.monitor_top, width, height)
+            self.callback(pil_image, thumbnail, coordinates)
+
+            # Restore CoordinatesFrame and close overlay
             if self.coordinates_frame:
-                self.coordinates_frame.Show()            
-            self.Destroy()
+                self.coordinates_frame.Show()
+            self.Close() 
+
+
+
 
 
 

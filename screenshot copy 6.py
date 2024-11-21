@@ -51,7 +51,6 @@ import wx
 
 class ThumbnailScrollPanel(wx.ScrolledWindow):
     """A scrollable panel for displaying ThumbnailToggleButtons."""
-    
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
 
@@ -62,45 +61,22 @@ class ThumbnailScrollPanel(wx.ScrolledWindow):
         self.SetScrollRate(10, 10)
         self.SetSizer(self.sizer)
 
-        # Dictionary to track the state of toggle buttons by their labels
-        self.thumbnail_buttons = {}
-
-    def add_thumbnail_button(self, pil_image, label="Thumbnail"):
+    def add_thumbnail_button(self, bitmap, label="Thumbnail"):
         """Add a new ThumbnailToggleButton to the scrollable panel."""
-        # Convert PIL.Image to wx.Bitmap
-        wx_image = wx.Image(pil_image.width, pil_image.height)
-        wx_image.SetData(pil_image.convert("RGB").tobytes())
-        bitmap = wx_image.ConvertToBitmap()
-
-        # Create the toggle button with the converted bitmap
         toggle_button = ThumbnailToggleButton(self, bitmap=bitmap, label=label)
         self.sizer.Add(toggle_button, 0, wx.EXPAND | wx.ALL, 5)
         self.Layout()  # Refresh layout
         self.FitInside()  # Ensure the scrollable area fits the new content
 
 
-    def on_thumbnail_button_toggle(self, event):
-        """Handle thumbnail toggle button state changes."""
-        clicked_button = event.GetEventObject()
-
-        for label, button in self.thumbnail_buttons.items():
-            if button == clicked_button:
-                # Handle the toggled button (already toggling logic is in the button itself)
-                wx.MessageBox(f"Button '{label}' toggled.", "Toggle Event", wx.OK)
-                break
-
-
-
 class CoordinatesPanel(wx.Panel):
     def __init__(self, parent, coordinates, callback, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
-        
+
         self.coordinates = coordinates
         self.callback = callback
         self.screenshot_groups = {}  # Dictionary to store groups of screenshots
         self.current_group = None
-        self.current_coordinates = None  # Add this to store the selected coordinates
-
 
         # Main horizontal sizer for overall layout
         main_hbox = wx.BoxSizer(wx.HORIZONTAL)
@@ -165,71 +141,21 @@ class CoordinatesPanel(wx.Panel):
 
     def add_new_coordinates(self, event):
         """Open overlay window to define new screenshot coordinates."""
-        try:
-            # Hide the main frame
-            main_frame = self.GetParent()
-            main_frame.Hide()
+        overlay = ScreenshotOverlay(
+            callback=self.on_coordinates_selected,
+            monitor_index=1,  # Assuming monitor index starts from 1
+            parent=self,
+            style=wx.NO_BORDER
+        )
+        overlay.Show()
 
-            # Create the overlay
-            overlay = ScreenshotOverlay(
-                callback=self.on_coordinates_selected,
-                monitor_index=1,  # Assuming monitor index starts from 1
-                coordinates_frame=self,  # Pass the reference to this frame if needed
-                parent=self,
-                style=wx.NO_BORDER
-            )
+    def on_coordinates_selected(self, pil_image, thumbnail):
+        """Callback after user selects coordinates."""
+        wx.MessageBox("New coordinates defined and ready for use!", "Info", wx.OK | wx.ICON_INFORMATION)
 
-            overlay.Show()
-            print("Overlay opened")
-            
-            # Restore the main frame after the overlay is closed
-            def restore_main_frame(evt):
-                print("Overlay closed")  # Debug print
-                main_frame.Show()  # Ensure the main frame is shown again
-                evt.Skip()  # Allow the close event to propagate
-
-            overlay.Bind(wx.EVT_CLOSE, restore_main_frame)
-
-        except Exception as e:
-            wx.MessageBox(f"Error opening overlay: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
-            self.GetParent().Show()  # Ensure the main frame is shown even if an error occurs
-
-
-
-
-
-    def on_coordinates_selected(self, pil_image, thumbnail, coordinates):
-        """Handle the selection and add new coordinates."""
-        if not coordinates:
-            wx.MessageBox("No valid coordinates found.", "Error", wx.OK | wx.ICON_ERROR)
-            return
-
-        # Avoid adding duplicate thumbnails by ensuring this function is the sole point of thumbnail addition.
-        self.current_coordinates = coordinates  # Store the selected coordinates
-
-        # Create a unique label
-        new_label = f"Coordinates {len(self.thumbnail_scroll_panel.sizer.GetChildren()) + 1}"
-
-        # Check if the thumbnail already exists in the thumbnail panel
-        if new_label in getattr(self, 'coordinates_list', {}):
-            wx.MessageBox(f"Coordinates '{new_label}' already exist!", "Info", wx.OK | wx.ICON_INFORMATION)
-            return
-
-        # Add thumbnail to the scroll panel
-        self.thumbnail_scroll_panel.add_thumbnail_button(thumbnail, label=new_label)
-
-        # Store the selected coordinates in the coordinates list
-        if not hasattr(self, 'coordinates_list'):
-            self.coordinates_list = {}
-        self.coordinates_list[new_label] = self.current_coordinates
-
-        # Update the status bar
-        self.GetParent().status_bar.SetStatusText(f"Added new coordinates as '{new_label}'")
-
-
-
-
-
+        # Optional: Save or display the new coordinates or thumbnail
+        # Example: Add a new toggle button for the thumbnail
+        self.thumbnail_scroll_panel.add_thumbnail(thumbnail)
 
 
 
@@ -653,18 +579,17 @@ class ScreenshotApp(wx.App):
 
 
 
-    def handle_full_screenshot(self, pil_image, thumbnail, coordinates):
-        """Handle the full screenshot, including coordinates, and update the UI."""
+    def handle_full_screenshot(self, pil_image, thumbnail):
+        """Handle the full screenshot and update the UI."""
         if self.coordinates_frame is None:
             wx.MessageBox("CoordinatesFrame is not available!", "Error", wx.OK | wx.ICON_ERROR)
             return
 
-        # Call the on_coordinates_selected method directly to handle the thumbnail addition
-        if hasattr(self.coordinates_frame.panel, 'on_coordinates_selected'):
-            self.coordinates_frame.panel.on_coordinates_selected(pil_image, thumbnail, coordinates)
+        # Add thumbnail to the left-side button area
+        self.coordinates_frame.panel.add_thumbnail_button(thumbnail, label="Full Screenshot")
 
-
-
+        # Update the status bar to indicate the screenshot was captured
+        self.coordinates_frame.status_bar.SetStatusText("Full screenshot captured.")
 
 
 
