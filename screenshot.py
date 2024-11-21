@@ -1,5 +1,5 @@
 import wx
-
+import os
 import threading
 import keyboard  # For global hotkeys
 from PIL import Image
@@ -96,24 +96,50 @@ class CoordinatesPanel(wx.Panel):
         self.group_list.SetSelection(self.group_list.GetCount() - 1)
 
     def take_single_screenshot(self):
-        """Take a single screenshot and add to a new list item."""
+        """Take a single screenshot, clear the notebook, and add it as a new list item."""
+        # Clear the notebook to reset the display
+        self.clear_tabs()
+
+        # Take the screenshot
         bitmap = self.take_screenshot(self.coordinates, return_bitmap=True)
+
+        # Create a new list item for the screenshot
         new_item_name = f"Single Screenshot {self.group_list.GetCount() + 1}"
         self.add_list_item(new_item_name)
+
+        # Add the screenshot to the group list and notebook
         self.screenshot_groups[new_item_name] = [bitmap]
+        self.add_screenshot_tab(bitmap)
+
+        # Update the status bar to indicate the action
+        self.GetParent().status_bar.SetStatusText(f"Added a new single screenshot: '{new_item_name}'")
+
 
     def take_group_screenshot(self):
-        """Take a screenshot and add it to the current group."""
+        """Start a new group or add a screenshot to the current group."""
         if self.current_group is None:
-            group_name = f"Group {self.group_list.GetCount() + 1}"
+            # Start a new group if no active group exists
+            group_name = f"Group {len(self.screenshot_groups) + 1}"
             self.add_group(group_name)
 
+        # Take a screenshot and add it to the current group
         bitmap = self.take_screenshot(self.coordinates, return_bitmap=True)
+
+        # Ensure the group exists in the dictionary
         if self.current_group in self.screenshot_groups:
             self.screenshot_groups[self.current_group].append(bitmap)
         else:
             self.screenshot_groups[self.current_group] = [bitmap]
+
+        # Add the screenshot as a tab in the notebook
         self.add_screenshot_tab(bitmap)
+
+        # Update the status bar
+        parent_frame = self.GetParent()
+        parent_frame.status_bar.SetStatusText(
+            f"Added screenshot to '{self.current_group}'. Total: {len(self.screenshot_groups[self.current_group])}"
+        )
+
 
     def end_group(self):
         """End the current group and finalize it."""
@@ -149,27 +175,52 @@ class CoordinatesPanel(wx.Panel):
             if return_bitmap:
                 return bitmap
 
+
+
     def save_screenshot(self, event):
-        if self.notebook.GetPageCount() == 0:
-            wx.MessageBox("No screenshots to save!", "Error", wx.OK | wx.ICON_ERROR)
+        # Use the currently selected group if there's no active group
+        selected_group = self.group_list.GetStringSelection()
+
+        if not selected_group or selected_group not in self.screenshot_groups:
+            wx.MessageBox("No active or selected group with screenshots to save!", "Error", wx.OK | wx.ICON_ERROR)
             return
 
-        save_dialog = wx.FileDialog(
+        # Open directory selection dialog
+        dir_dialog = wx.DirDialog(
             self,
-            message="Save Screenshot",
-            wildcard="PNG files (*.png)|*.png",
-            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+            message="Select a directory to save screenshots",
+            style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST,
         )
 
-        if save_dialog.ShowModal() == wx.ID_OK:
-            filepath = save_dialog.GetPath()
-            active_page = self.notebook.GetCurrentPage()
-            canvas = active_page.GetChildren()[0]  # StaticBitmap on the panel
-            bitmap = canvas.GetBitmap()
+        if dir_dialog.ShowModal() == wx.ID_OK:
+            base_dir = dir_dialog.GetPath()
+            group_dir = os.path.join(base_dir, selected_group)
 
-            pil_image = Image.open(io.BytesIO(bitmap.ConvertToImage().GetDataBuffer()))
-            pil_image.save(filepath, format="PNG")
-            wx.MessageBox(f"Screenshot saved to {filepath}", "Success", wx.OK | wx.ICON_INFORMATION)
+            # Create a subdirectory for the selected group
+            if not os.path.exists(group_dir):
+                os.makedirs(group_dir)
+
+            screenshots = self.screenshot_groups[selected_group]
+            if not screenshots:
+                wx.MessageBox(f"No screenshots in the group '{selected_group}' to save!", "Error", wx.OK | wx.ICON_ERROR)
+                return
+
+            # Save each screenshot in the group directory
+            for idx, bitmap in enumerate(screenshots):
+                wx_image = bitmap.ConvertToImage()
+
+                # Save the image to the group directory as PNG
+                filepath = os.path.join(group_dir, f"screenshot_{idx + 1}.png")
+                wx_image.SaveFile(filepath, wx.BITMAP_TYPE_PNG)
+
+            #wx.MessageBox(f"All screenshots in group '{selected_group}' saved to {group_dir}", "Success", wx.OK | wx.ICON_INFORMATION)
+            # Update the status bar
+            self.GetParent().status_bar.SetStatusText(f"All screenshots in group '{selected_group}' saved to {group_dir}")
+        else:
+            #wx.MessageBox("Save operation cancelled.", "Info", wx.OK | wx.ICON_INFORMATION)
+            self.GetParent().status_bar.SetStatusText("Save operation cancelled.")
+
+
 
     def on_group_selected(self, event):
         """Handle group selection from the list."""
@@ -183,13 +234,19 @@ class CoordinatesPanel(wx.Panel):
     def add_group(self, group_name):
         """Add a new screenshot group."""
         if group_name in self.screenshot_groups:
-            wx.MessageBox("Group already exists!", "Error", wx.OK | wx.ICON_ERROR)
+            # Avoid duplicate groups
+            self.GetParent().status_bar.SetStatusText(f"Group '{group_name}' already exists.")
             return
 
+        # Create a new group and add it to the list
         self.screenshot_groups[group_name] = []
         self.add_list_item(group_name)
         self.current_group = group_name
         self.clear_tabs()
+
+        # Update the status bar
+        self.GetParent().status_bar.SetStatusText(f"Started new group: '{group_name}'")
+
 
     def update_coordinates(self, new_coordinates):
         self.coordinates = new_coordinates
@@ -294,13 +351,13 @@ class ScreenshotApp(wx.App):
 
 
     def add_to_group(self):
-        """Start a group or add screenshots to the current group."""
+        """Start a new group or add screenshots to the current group."""
         if not self.grouping_mode:
             # Start a new group
             self.grouping_mode = True
             group_name = f"Group {self.coordinates_frame.panel.group_list.GetCount() + 1}"
-            self.coordinates_frame.panel.add_group(group_name)  # Create a new group
-            self.coordinates_frame.panel.current_group = group_name  # Set it as the active group
+            self.coordinates_frame.panel.add_group(group_name)
+            self.coordinates_frame.panel.current_group = group_name
 
         # Use the active group
         group_name = self.coordinates_frame.panel.current_group
@@ -311,18 +368,22 @@ class ScreenshotApp(wx.App):
             # Take a screenshot and append to the current group
             bitmap = self.coordinates_frame.panel.take_screenshot(coordinates, return_bitmap=True)
 
-            # Ensure the screenshot is added only once
+            # Add the screenshot to the group
             if group_name in self.coordinates_frame.panel.screenshot_groups:
-                if bitmap not in self.coordinates_frame.panel.screenshot_groups[group_name]:
-                    self.coordinates_frame.panel.screenshot_groups[group_name].append(bitmap)
+                self.coordinates_frame.panel.screenshot_groups[group_name].append(bitmap)
             else:
                 self.coordinates_frame.panel.screenshot_groups[group_name] = [bitmap]
 
-            # Add a tab for the screenshot
-            print(f"Adding screenshot to group '{group_name}'. Current count: {len(self.coordinates_frame.panel.screenshot_groups[group_name])}")
+            # Add the screenshot as a tab
             self.coordinates_frame.panel.add_screenshot_tab(bitmap)
+
+            # Update the status bar
+            self.coordinates_frame.status_bar.SetStatusText(
+                f"Added screenshot to '{group_name}'. Total: {len(self.coordinates_frame.panel.screenshot_groups[group_name])}"
+            )
         else:
             wx.MessageBox("CoordinatesPanel or its take_screenshot method is not available!", "Error", wx.OK | wx.ICON_ERROR)
+
 
 
 
