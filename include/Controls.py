@@ -211,3 +211,96 @@ class ScreenshotOverlay(wx.Frame):
 
 
 
+
+
+
+class ThumbnailToggleButton(wx.Panel):
+    """A custom toggle button with a thumbnail and a red border on toggle."""
+    def __init__(self, parent, bitmap, label="Thumbnail", *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+
+        self.SetBackgroundColour(wx.NullColour)  # Default background color
+        self.label = label
+
+        # Create a sizer for the panel
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Create the toggle button
+        self.button = wx.ToggleButton(self, label="")
+        self.button.SetBitmap(bitmap)  # Set the bitmap for the button
+        self.button.Bind(wx.EVT_TOGGLEBUTTON, self.on_toggle)
+        self.sizer.Add(self.button, 1, wx.EXPAND)
+
+        self.SetSizer(self.sizer)
+
+    def on_toggle(self, event=None):
+        """Handle toggle state changes."""
+        if self.button.GetValue():
+            # Button is pressed (add red border)
+            self.SetBackgroundColour(wx.Colour(255, 0, 0))  # Red border
+            self.button.SetBackgroundColour(wx.Colour(240, 240, 240))  # Optional: Distinct button background
+        else:
+            # Button is unpressed (remove red border)
+            self.SetBackgroundColour(wx.NullColour)  # Default border
+            self.button.SetBackgroundColour(wx.NullColour)  # Reset button background
+
+        # Force a UI refresh for both the panel and the button
+        self.Refresh()
+        self.Update()
+        self.button.Refresh()
+        self.button.Update()
+
+        # Update the status bar or any parent-level feedback
+        parent_frame = self.GetParent().GetParent().GetParent()
+        if self.button.GetValue():
+            parent_frame.status_bar.SetStatusText(f"{self.label} selected (pressed)")
+        else:
+            parent_frame.status_bar.SetStatusText(f"{self.label} deselected")
+
+
+
+import wx
+
+
+class ThumbnailScrollPanel(wx.ScrolledWindow):
+    """A scrollable panel for displaying ThumbnailToggleButtons."""
+    
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+
+        # Create a vertical sizer to hold the toggle buttons
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Set up the scrolling properties
+        self.SetScrollRate(10, 10)
+        self.SetSizer(self.sizer)
+
+        # Dictionary to track the state of toggle buttons by their labels
+        self.thumbnail_buttons = {}
+
+    def add_thumbnail_button(self, pil_image, label="Thumbnail"):
+        """Add a new ThumbnailToggleButton to the scrollable panel."""
+        # Convert PIL.Image to wx.Bitmap
+        wx_image = wx.Image(pil_image.width, pil_image.height)
+        wx_image.SetData(pil_image.convert("RGB").tobytes())
+        bitmap = wx_image.ConvertToBitmap()
+
+        # Create the toggle button with the converted bitmap
+        toggle_button = ThumbnailToggleButton(self, bitmap=bitmap, label=label)
+        self.sizer.Add(toggle_button, 0, wx.EXPAND | wx.ALL, 5)
+        self.Layout()  # Refresh layout
+        self.FitInside()  # Ensure the scrollable area fits the new content
+
+        return toggle_button  # Return the created toggle button
+
+
+
+    def on_thumbnail_button_toggle(self, event):
+        """Handle thumbnail toggle button state changes."""
+        clicked_button = event.GetEventObject()
+
+        for label, button in self.thumbnail_buttons.items():
+            if button == clicked_button:
+                # Handle the toggled button (already toggling logic is in the button itself)
+                wx.MessageBox(f"Button '{label}' toggled.", "Toggle Event", wx.OK)
+                break
