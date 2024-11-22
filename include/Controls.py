@@ -108,6 +108,7 @@ class ScreenshotOverlay(wx.Frame):
         """Ensure the CoordinatesFrame is shown when the overlay is closed."""
         print("ScreenshotOverlay on_close called")  # Debug print
         if self.coordinates_frame:
+            print("Showing CoordinatesFrame")  # Debug print
             self.coordinates_frame.GetParent().Show()  # Ensure the main frame is shown
         self.Destroy()
         event.Skip()  # Propagate the close event
@@ -198,7 +199,9 @@ class ScreenshotOverlay(wx.Frame):
 
             # Restore CoordinatesFrame and close overlay
             if self.coordinates_frame:
+                print("Showing CoordinatesFrame 222")  # Debug print
                 self.coordinates_frame.Show()
+                self.coordinates_frame.panel.on_show_webview(button=self.coordinates_frame.panel.show_webview_btn)
             self.Close() 
 
 

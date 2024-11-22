@@ -3,7 +3,8 @@ import os
 import threading
 import keyboard  # For global hotkeys
 from PIL import Image
-import io
+
+import wx.html2 
 import ctypes
 ctypes.windll.shcore.SetProcessDpiAwareness(2)
 from include.Controls import MonitorSelectionDialog, ScreenshotOverlay,  ThumbnailScrollPanel, ThumbnailToggleButton
@@ -54,10 +55,19 @@ class CoordinatesPanel(wx.Panel):
 
         # Buttons column
         button_vbox = wx.BoxSizer(wx.VERTICAL)
+        if 1:
+            s_vbox = wx.BoxSizer(wx.HORIZONTAL)
+            screenshot_btn = wx.Button(self, label="Take \nScreenshot")
+            screenshot_btn.Bind(wx.EVT_BUTTON, lambda evt: self.take_single_screenshot())
 
-        screenshot_btn = wx.Button(self, label="Take Screenshot")
-        screenshot_btn.Bind(wx.EVT_BUTTON, lambda evt: self.take_single_screenshot())
-        button_vbox.Add(screenshot_btn, flag=wx.ALL, border=5)
+            s_vbox.Add(screenshot_btn, flag=wx.ALL, border=5)
+            
+            self.show_webview_btn =show_webview_btn= wx.Button(self, label="Hide Webview")
+            show_webview_btn.Bind(wx.EVT_BUTTON, self.on_show_webview)
+
+            s_vbox.Add(show_webview_btn, flag=wx.ALL, border=5)
+            button_vbox.Add(s_vbox, flag=wx.ALL, border=5)
+
         if 1:
             g_vbox = wx.BoxSizer(wx.HORIZONTAL)
             group_screenshot_btn = wx.Button(self, label="Take Group \nScreenshot")
@@ -83,13 +93,103 @@ class CoordinatesPanel(wx.Panel):
         left_vbox.Add(button_vbox, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 5)
 
         main_hbox.Add(left_vbox, 0, wx.EXPAND | wx.ALL, 5)
+        if 1:
+    # Main horizontal layout with splitter
+            self.splitter = wx.SplitterWindow(self)
 
-        # Notebook for displaying screenshots
-        self.notebook = wx.Notebook(self)
-        self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_notebook_page_changed)
-        main_hbox.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
+            # Left panel for the notebook
+            self.notebook_panel = wx.Panel(self.splitter)
+            notebook_sizer = wx.BoxSizer(wx.VERTICAL)
+
+            self.notebook = wx.Notebook(self.notebook_panel)
+            self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_notebook_page_changed)
+            notebook_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
+
+            self.notebook_panel.SetSizer(notebook_sizer)
+            # Right panel for WebView
+            self.webview_panel = wx.Panel(self.splitter)
+            self.webview_sizer = wx.BoxSizer(wx.VERTICAL)
+
+            self.webview = wx.html2.WebView.New(self.webview_panel)
+            self.webview.LoadURL("https://www.example.com")  # Set desired initial URL
+            self.webview_sizer.Add(self.webview, 1, wx.EXPAND | wx.ALL, 5)
+
+            self.webview_panel.SetSizer(self.webview_sizer)
+            self.webview_panel.Layout()
+
+            # Configure splitter
+            self.splitter.SplitVertically(self.notebook_panel, self.webview_panel)
+
+            # Set the sash position to ensure WebView is visible initially
+            #self.splitter.SetSashPosition(int(self.GetSize().x -50), redraw=True)  # Allocate 50% to both
+            self.splitter.SetMinimumPaneSize(50)
+            self.splitter.Layout() 
+
+            # Set the initial button state
+            self.show_webview_btn.SetLabel("Show Webview")
+
+            # Set the initial button state
+            
+            self.show_webview_btn.Bind(wx.EVT_BUTTON, self.on_show_webview)          
+
+            # Configure splitter
+            #self.splitter.SplitVertically(self.notebook_panel, self.webview_panel)
+            #self.splitter.SetSashGravity(1)  # Allocate more space to the notebook
+            #self.splitter.SetMinimumPaneSize(200)
+            self.Bind(wx.EVT_SIZE, self.on_size) # Allocate 75% to the notebook
+            #wx.CallAfter(self.on_show_webview,wx.CommandEvent())
+            #wx.CallAfter(wx.PostEvent,self.show_webview_btn, wx.CommandEvent(wx.wxEVT_BUTTON))
+            #self.on_show_webview(button=self.show_webview_btn)
+
+
+
+
+        main_hbox.Add(self.splitter, 1, wx.EXPAND | wx.ALL, 5)
 
         self.SetSizer(main_hbox)
+    def on_size(self, event):
+        """Adjust the sash position after the panel is resized."""
+        self.splitter.SetSashPosition(int(self.GetSize().x * 0.75))  # Allocate 75% to the notebook
+        self.Unbind(wx.EVT_SIZE)  # Unbind to avoid repeated adjustments
+        event.Skip()
+
+    def on_show_webview(self, event=None, button=None):
+        print("on_show_webview")
+        """Toggle the splitter sash position and update the button label."""
+        if not button:  # Use the button reference if provided
+            button = event.GetEventObject() if event else self.show_webview_btn
+
+        current_label = button.GetLabel()
+        total_width = self.GetSize().x
+
+        # Determine the new sash position based on the current label
+        if current_label == "Show Webview":
+            # Move sash to allocate more space to WebView
+            new_position = 50  # Minimal space for notebook
+            button.SetLabel("Hide Webview")
+            self.GetParent().status_bar.SetStatusText("WebView panel shown.")
+        else:
+            # Move sash to allocate more space to the notebook
+            new_position = total_width - 50  # Minimal space for WebView
+            button.SetLabel("Show Webview")
+            self.GetParent().status_bar.SetStatusText("WebView panel minimized.")
+
+        # Adjust the sash position
+        self.splitter.SetSashPosition(new_position, redraw=True)
+        self.splitter.Layout()
+        self.Layout()
+
+
+
+
+
+
+
+
+
+
+
+
     def on_coordinates_listbox_selection(self, event):
         """Handle selection of an item in the coordinates list control."""
         selected_index = self.coordinates_listbox.GetSelection()
@@ -159,6 +259,7 @@ class CoordinatesPanel(wx.Panel):
             def restore_main_frame(evt):
                 print("Overlay closed")  # Debug print
                 main_frame.Show()  # Ensure the main frame is shown again
+                
                 evt.Skip()  # Allow the close event to propagate
 
             overlay.Bind(wx.EVT_CLOSE, restore_main_frame)
