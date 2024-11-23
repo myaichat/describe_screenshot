@@ -27,14 +27,36 @@ class WebViewPanel(wx.Panel):
         self.webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
         self.webview.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_webview)
 
-        # Create a panel with a button as the bottom pane
+        # Create a panel with a button and multiline text control as the bottom pane
         self.button_panel = wx.Panel(self.splitter)
+        button_panel_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        # Add the multiline text control
+        self.prompt_text_ctrl = wx.TextCtrl(self.button_panel, style=wx.TE_MULTILINE)
+        self.prompt_text_ctrl.SetValue("Describe this image")
+        button_panel_sizer.Add(self.prompt_text_ctrl, 1, wx.EXPAND | wx.ALL, 5)
+
+        # Add the button sizer for vertical arrangement
         button_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Add the "Ask Model" button
+        label = "Ask Model"
+        text_width, text_height = self.button_panel.GetTextExtent(label)  # Get the label dimensions
+        padding = 20  # Add padding to ensure square shape
+        button_size = max(text_width, text_height) + padding  # Determine square size based on label size
+
+        self.ask_model_button = wx.Button(self.button_panel, label=label, size=(button_size, button_size))
+        self.ask_model_button.SetBackgroundColour(wx.Colour(144, 238, 144))  # Light green color
+        self.ask_model_button.Bind(wx.EVT_BUTTON, self.on_ask_model_button_click)  # Bind button click logic
+        button_sizer.Add(self.ask_model_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+
+        # Add the collapse/expand button
         self.collapse_button = wx.Button(self.button_panel, label="Collapse")
         self.collapse_button.Bind(wx.EVT_BUTTON, self.on_collapse_button_click)  # Bind collapse/expand logic
         button_sizer.Add(self.collapse_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
-        self.button_panel.SetSizer(button_sizer)
 
+        button_panel_sizer.Add(button_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        self.button_panel.SetSizer(button_panel_sizer)
         # Bind mouse enter/leave events to the button panel
         self.button_panel.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_button_panel)
         self.button_panel.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_panel)
@@ -54,7 +76,9 @@ class WebViewPanel(wx.Panel):
 
         # Track the collapsed state
         self.is_collapsed = False
-        wx.CallAfter(self.on_collapse_button_click, None)  # Collapse the button panel initially
+        wx.CallAfter(self.on_collapse_button_click, None)
+    def on_ask_model_button_click(self, event):
+        print("on_ask_model_button_click")
 
     def on_collapse_button_click(self, event):
         print ("on_collapse_button_click", self.is_collapsed)  
@@ -94,6 +118,18 @@ class WebViewPanel(wx.Panel):
 
     def on_mouse_leave_panel(self, event):
         """Handle mouse leaving the bottom button panel."""
+        # Get the mouse position in screen coordinates
+        mouse_position = wx.GetMouseState()
+        mouse_screen_point = wx.Point(mouse_position.x, mouse_position.y)
+
+        # Get the screen rectangle of the button panel
+        panel_screen_rect = self.button_panel.GetScreenRect()
+
+        # Check if the mouse is still inside the panel or any of its children
+        if panel_screen_rect.Contains(mouse_screen_point):
+            return  # Do nothing if the mouse is still within the panel or its children
+
+        # Otherwise, trigger the collapse
         print("Mouse left Bottom Panel.", self.is_collapsed)
         if not self.is_collapsed:
             self.on_collapse_button_click(None)  # Collapse WebView and expand Bottom Panel        
