@@ -17,51 +17,93 @@ MODEL='gpt-4o-mini'
 conversation_history=[]
 client=openai.OpenAI()
 
+def run_stream_response( prompt, model):
+    global conversation_history, client
+    ch=conversation_history
+  
 
-def describe_screenshot(prompt, model, image_data, append_callback=None, history=False):
+    ch.append({"role": "user", "content": prompt})
+
+    print('MODEL:', model)
+    assert model
+    if 1:
+        response = client.chat.completions.create(
+            model=model,
+            messages=ch, 
+            stream=True
+        )
+
+
+    out=[]
+            
+    for chunk in response:
+            
+        if hasattr(chunk.choices[0].delta, 'content'):
+            content = chunk.choices[0].delta.content
+            
+            
+            
+            if not content:
+                continue
+            print(content, end='', flush=True)
+            out.append(content)
+            
+
+    ch.append({"role": "assistant", "content": ''.join(out)})
+
+from PIL import ImageGrab  # For capturing screenshots
+import base64
+
+
+
+def describe_screenshot(prompt, model, image_data, append_callback=None):
     global conversation_history, client
     assert image_data, "Image data is required."
 
     try:
-        ch = conversation_history if history else []
+        ch = conversation_history
+        ch.append({"role": "user", "content": [
+                {
+                "type": "text",
+                "text": prompt,
+                },
+                {
+                "type": "image_url",
+                "image_url": {
+                    "url":  f"data:image/jpeg;base64,{image_data}"
+                },
+                },
+            ],})
 
-        ch.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
-            ]
-        })
+        print(f'MODEL: {model}')
+        assert model
 
+        # API request to send the image and prompt
         response = client.chat.completions.create(
             model=model,
             messages=ch,
             stream=True
         )
 
-        assistant_response = ""
+        # Process the response
+        out = []
         for chunk in response:
             if hasattr(chunk.choices[0].delta, 'content'):
                 content = chunk.choices[0].delta.content
-                if content:
-                    assistant_response += content
-                    if append_callback:
-                        wx.CallAfter(append_callback, content, is_streaming=True)
+                if not content:
+                    continue
+                print(content, end='', flush=True)
+                out.append(content)
+                if append_callback:
+                    wx.CallAfter(append_callback, content)
 
-        # Finalize the response
-        if history:
-            ch.append({"role": "assistant", "content": assistant_response})
-
-        if append_callback:
-            wx.CallAfter(append_callback, assistant_response, is_streaming=False)
+        # Append the assistant's response to the conversation history
+        assistant_response = ''.join(out)
+        ch.append({"role": "assistant", "content": assistant_response})
 
     except Exception as e:
         print(f"Error in describe_screenshot: {e}")
         raise
-
-
-
-
 
 
 class WebViewPanel(wx.Panel):
@@ -83,23 +125,6 @@ class WebViewPanel(wx.Panel):
                         #content {  }
                         .screenshot { width: 150px; height: auto; border: 1px solid black; margin: 5px 0; }
                         .streamed-text { margin: 5px 0; }
-                        .user-message {
-                            border: 2px solid #004085; /* Blue border */
-                            background-color: #e7f3ff; /* Light blue background */
-                            padding: 10px;
-                            margin: 10px 0;
-                            border-radius: 8px; /* Optional: Rounded corners */
-                            font-weight: bold; /* Make it visually distinctive */
-                        }
-
-                        .assistant-message {
-                            border: 1px solid #d3d3d3; /* Grey border */
-                            background-color: #f9f9f9; /* Light grey background */
-                            padding: 10px;
-                            margin: 10px 0;
-                            border-radius: 8px; /* Optional: Rounded corners */
-                        }
-                                                          
                     </style>
                 </head>
                 <body>
@@ -178,15 +203,7 @@ class WebViewPanel(wx.Panel):
         print("on_ask_model_button_click")
 
         # Disable the button to avoid multiple clicks
-        if not hasattr(self, 'thread_active'):
-            self.thread_active = False  # Initialize the thread active state
-
-        if self.thread_active:
-            wx.CallAfter(self.append_text, "Error: Please wait for the current request to complete.\n")
-            return
-
         self.ask_model_button.Disable()
-        self.thread_active = True
 
         # Get the user prompt from the input field
         user_message = self.prompt_text_ctrl.GetValue()
@@ -196,7 +213,6 @@ class WebViewPanel(wx.Panel):
         if not user_message.strip():
             wx.CallAfter(self.append_text, "Error: Prompt cannot be empty.\n")
             self.ask_model_button.Enable()
-            self.thread_active = False
             return
 
         # Append the user message to the WebView
@@ -207,33 +223,34 @@ class WebViewPanel(wx.Panel):
         conversation_history.append({"role": "user", "content": user_message})
 
         # Define a callback function to update the WebView dynamically
-        def append_response_text(content, is_streaming):
-            self.append_chat_message("Assistant", content, is_streaming=is_streaming)
+        def append_response_text(content):
+            self.append_chat_message("Assistant", content)
 
         # Function to handle the streaming response
         def run_in_thread():
             try:
                 if not model:
                     raise ValueError("Model is not defined.")
-
-                # Call the describe_screenshot function
-                describe_screenshot(user_message, model, image_data, append_callback=append_response_text)
+                
+                # Call the describe_screenshot or other model API function
+                if image_data:
+                    # Send image data along with the prompt
+                    describe_screenshot(user_message, model, image_data, append_callback=append_response_text)
+                else:
+                    # Send only the text prompt
+                    response = run_stream_response(user_message, model)
+                    # Append the assistant's response to the WebView
+                    assistant_response = response[-1]["content"]
+                    wx.CallAfter(self.append_chat_message, "Assistant", assistant_response)
 
             except Exception as e:
-                error_message = f"Error: {e}"
-                wx.CallAfter(self.append_chat_message, "Assistant", error_message)
-                wx.CallAfter(self.ask_model_button.Enable)
-                self.thread_active = False
-
+                wx.CallAfter(self.append_text, f"Error: {e}\n")
             finally:
                 # Re-enable the button after processing
                 wx.CallAfter(self.ask_model_button.Enable)
-                self.thread_active = False
 
         # Run the response processing in a separate thread
         threading.Thread(target=run_in_thread, daemon=True).start()
-
-
 
 
 
@@ -327,13 +344,15 @@ class WebViewPanel(wx.Panel):
         wx.CallAfter(self._append_text, text)
 
     def _append_text(self, text):
-        safe_text = text.replace("\\", "\\\\").replace("`", "\\`").replace("\n", "<br>")
+        safe_text = text.replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
         script = f"""
             (function() {{
                 var content = document.getElementById('content');
+                var existingText = content.innerText || '';  // Get existing text
                 var newText = `{safe_text}`;
-                content.innerHTML += newText;  // Append the content as HTML
-                window.scrollTo(0, document.body.scrollHeight);  // Scroll to the bottom
+                var updatedText = existingText + newText.replace(/\\n/g, '\\n');
+                content.innerText = updatedText;  // Update the content div
+                window.scrollTo(0, document.body.scrollHeight);  // Scroll to bottom
             }})();
         """
         self.webview.RunScript(script)
@@ -341,64 +360,40 @@ class WebViewPanel(wx.Panel):
 
 
 
-
-
     def append_chat_message(self, sender, message, is_streaming=False):
-        # Define CSS classes based on sender type
-        css_class = "user-message" if sender.lower() == "user" else "assistant-message"
-
+        """Append a chat message to the WebView. Handle streaming updates."""
         safe_sender = sender.replace("\\", "\\\\").replace("`", "\\`")
-        safe_message = message.replace("\\", "\\\\").replace("`", "\\`").replace("\n", "<br>")
+        safe_message = message.replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
 
         if is_streaming:
-            # Handle streaming content dynamically
+            # For streaming updates, append to the last line dynamically
             script = f"""
                 (function() {{
                     var content = document.getElementById('content');
                     var lastLine = content.lastElementChild;
-
-                    if (!lastLine || !lastLine.classList.contains('streaming-line')) {{
-                        // Create a new entry for streaming text
+                    if (!lastLine || lastLine.tagName !== 'DIV' || !lastLine.classList.contains('streaming-line')) {{
                         var line = document.createElement('div');
-                        line.className = '{css_class} streaming-line';
-                        line.innerHTML = '<b>{safe_sender}:</b> <span id="streaming-text"></span>';
+                        line.className = 'streaming-line';
+                        line.innerHTML = '<b>{safe_sender}: </b><span id="streaming-text"></span>';
                         content.appendChild(line);
                     }}
-
                     var streamingText = document.getElementById('streaming-text');
-                    streamingText.innerHTML += `{safe_message}`;
-                    window.scrollTo(0, document.body.scrollHeight);
+                    streamingText.textContent += `{safe_message}`;
+                    window.scrollTo(0, document.body.scrollHeight);  // Scroll to bottom
                 }})();
             """
-
         else:
-            # Append finalized content
+            # For non-streaming updates, append a new line
             script = f"""
                 (function() {{
                     var content = document.getElementById('content');
                     var line = document.createElement('div');
-                    line.className = '{css_class}';
-                    line.innerHTML = '<b>{safe_sender}:</b> {safe_message}';
+                    line.innerHTML = '<b>{safe_sender}: </b><span>{safe_message}</span>';
                     content.appendChild(line);
-
-                    // Remove streaming-line placeholder if it exists
-                    var streamingLine = document.querySelector('.streaming-line');
-                    if (streamingLine) {{
-                        streamingLine.remove();
-                    }}
-
-                    window.scrollTo(0, document.body.scrollHeight);
+                    window.scrollTo(0, document.body.scrollHeight);  // Scroll to bottom
                 }})();
             """
         self.webview.RunScript(script)
-
-
-
-
-
-
-
-
 
 
 
