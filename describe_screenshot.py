@@ -9,61 +9,9 @@ import ctypes
 ctypes.windll.shcore.SetProcessDpiAwareness(2)
 from include.Controls import MonitorSelectionDialog, ScreenshotOverlay,  ThumbnailScrollPanel, ThumbnailToggleButton
 
-import  openai
+
 import base64
 import io
-
-MODEL='gpt-4o-mini'
-conversation_history=[]
-client=openai.OpenAI()
-
-
-def describe_screenshot(prompt, model, image_data, append_callback=None, history=False):
-    global conversation_history, client
-    assert image_data, "Image data is required."
-
-    try:
-        ch = conversation_history if history else []
-
-        ch.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
-            ]
-        })
-
-        response = client.chat.completions.create(
-            model=model,
-            messages=ch,
-            stream=True
-        )
-
-        assistant_response = ""
-        for chunk in response:
-            if hasattr(chunk.choices[0].delta, 'content'):
-                content = chunk.choices[0].delta.content
-                if content:
-                    assistant_response += content
-                    if append_callback:
-                        wx.CallAfter(append_callback, content, is_streaming=True)
-
-        # Finalize the response
-        if history:
-            ch.append({"role": "assistant", "content": assistant_response})
-
-        if append_callback:
-            wx.CallAfter(append_callback, assistant_response, is_streaming=False)
-
-    except Exception as e:
-        print(f"Error in describe_screenshot: {e}")
-        raise
-
-
-
-
-
-
 class WebViewPanel(wx.Panel):
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
@@ -73,51 +21,7 @@ class WebViewPanel(wx.Panel):
 
         # Create the WebView as the top pane
         self.webview = wx.html2.WebView.New(self.splitter)
-        self.webview.SetPage("""
-            <html>
-                <head>
-                    <style>
-                        body { font-family: Arial, sans-serif; padding: 10px; }
-                        #prompt { font-weight: bold; color: #004085; background-color: #cce5ff; padding: 10px; border: 1px solid #b8daff; margin-bottom: 20px; }
-                        #image_container { margin-bottom: 20px; }
-                        #content {  }
-                        .screenshot { width: 150px; height: auto; border: 1px solid black; margin: 5px 0; }
-                        .streamed-text { margin: 5px 0; }
-                        .user-message {
-                            border: 2px solid #004085; /* Blue border */
-                            background-color: #e7f3ff; /* Light blue background */
-                            padding: 10px;
-                            margin: 10px 0;
-                            border-radius: 8px; /* Optional: Rounded corners */
-                            font-weight: bold; /* Make it visually distinctive */
-                        }
-
-                        .assistant-message {
-                            border: 1px solid #d3d3d3; /* Grey border */
-                            background-color: #f9f9f9; /* Light grey background */
-                            padding: 10px;
-                            margin: 10px 0;
-                            border-radius: 8px; /* Optional: Rounded corners */
-                        }
-                                                          
-                    </style>
-                </head>
-                <body>
-                    <h2>Model Output</h2>
-
-                    <div id="image_container">
-                        <!-- Screenshots will be inserted here -->
-                    </div>
-                    <div id="prompt">
-                        <!-- Prompt will be inserted here -->
-                    </div>                             
-                    <div id="content">
-                        <!-- Streamed text will be appended here -->
-                    </div>
-                </body>
-            </html>
-        """, "")
-
+        self.webview.SetPage("<html><body></body></html>", "")  # Initialize with an empty HTML page
 
         # Bind mouse enter/leave events to the WebView
         self.webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
@@ -169,77 +73,13 @@ class WebViewPanel(wx.Panel):
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         main_sizer.Add(self.splitter, 1, wx.EXPAND)
         self.SetSizer(main_sizer)
-        self.image_data=None
+
         # Track the collapsed state
         self.is_collapsed = False
         wx.CallAfter(self.on_collapse_button_click, None)
-
+        self.set_initial_content()
     def on_ask_model_button_click(self, event):
         print("on_ask_model_button_click")
-
-        # Disable the button to avoid multiple clicks
-        if not hasattr(self, 'thread_active'):
-            self.thread_active = False  # Initialize the thread active state
-
-        if self.thread_active:
-            wx.CallAfter(self.append_text, "Error: Please wait for the current request to complete.\n")
-            return
-
-        self.ask_model_button.Disable()
-        self.thread_active = True
-
-        # Get the user prompt from the input field
-        user_message = self.prompt_text_ctrl.GetValue()
-        model = MODEL
-        image_data = self.image_data
-
-        if not user_message.strip():
-            wx.CallAfter(self.append_text, "Error: Prompt cannot be empty.\n")
-            self.ask_model_button.Enable()
-            self.thread_active = False
-            return
-
-        # Append the user message to the WebView
-        self.append_chat_message("User", user_message)
-
-        # Add the user message to the conversation history
-        global conversation_history
-        conversation_history.append({"role": "user", "content": user_message})
-
-        # Define a callback function to update the WebView dynamically
-        def append_response_text(content, is_streaming):
-            self.append_chat_message("Assistant", content, is_streaming=is_streaming)
-
-        # Function to handle the streaming response
-        def run_in_thread():
-            try:
-                if not model:
-                    raise ValueError("Model is not defined.")
-
-                # Call the describe_screenshot function
-                describe_screenshot(user_message, model, image_data, append_callback=append_response_text)
-
-            except Exception as e:
-                error_message = f"Error: {e}"
-                wx.CallAfter(self.append_chat_message, "Assistant", error_message)
-                wx.CallAfter(self.ask_model_button.Enable)
-                self.thread_active = False
-
-            finally:
-                # Re-enable the button after processing
-                wx.CallAfter(self.ask_model_button.Enable)
-                self.thread_active = False
-
-        # Run the response processing in a separate thread
-        threading.Thread(target=run_in_thread, daemon=True).start()
-
-
-
-
-
-
-
-
 
     def on_collapse_button_click(self, event):
         print ("on_collapse_button_click", self.is_collapsed)  
@@ -296,110 +136,134 @@ class WebViewPanel(wx.Panel):
             self.on_collapse_button_click(None)  # Collapse WebView and expand Bottom Panel        
         event.Skip()
 
-    def bitmap_to_base64(self, bitmap):
-        """Convert a wx.Bitmap to a base64-encoded PNG image."""
-        image = bitmap.ConvertToImage()
-        stream = io.BytesIO()
-        image.SaveFile(stream, wx.BITMAP_TYPE_PNG)
-        self.image_data=base64_image = base64.b64encode(stream.getvalue()).decode('utf-8')
-        return base64_image
-    
-    def update_webview_with_image(self, bitmap):
-        """Update the WebView with the base64 image, preserving existing content."""
-        base64_image = self.bitmap_to_base64(bitmap)
-        # Escape backslashes and backticks in the base64 string
-        safe_base64_image = base64_image.replace("\\", "\\\\").replace("`", "\\`")
-        # JavaScript to append the image to the image container
-        script = f"""
-            (function() {{
-                var imageContainer = document.getElementById('image_container');
-                var img = document.createElement('img');
-                img.src = "data:image/png;base64,{safe_base64_image}";
-                img.alt = "Screenshot";
-                img.className = "screenshot";
-                imageContainer.appendChild(img);
-                window.scrollTo(0, document.body.scrollHeight);
-            }})();
+    def set_initial_content(self):
+        initial_html = """
+        <html>
+        <head>
+        <style>
+            /* Apply styling to the table with a class */
+            #log-table {
+                font-family: Arial, sans-serif;   /* Basic, clean font */
+                font-size: 16px;                  /* Regular font size */
+                line-height: 1.5;                 /* Readable line spacing */
+                color: #2d2d2d;                   /* Dark gray color */
+                width: 100%;                      /* Full width */
+                border-collapse: collapse;        /* Remove spacing between cells */
+            }
+
+            /* Styling for the header cell */
+            #header-cell {
+                font-weight: bold;
+                font-size: 20px;
+                padding: 10px;                    /* Add some padding */
+                background-color: #f6f6f6;        /* Light background for header */
+                border-bottom: 1px solid #ddd;    /* Border below header */
+            }
+
+            /* Styling for other table rows and cells */
+            #log-cell {
+                padding: 10px;
+            }
+
+            hr {
+                border: 0;
+                border-top: 1px solid #ddd;
+                margin: 0;
+            }
+        #log-container {
+            max-height: 500px;  
+            overflow-y: auto;   
+        }            
+        </style>
+        </head>
+        <body>
+        <table  id="log-container">
+            <tr><td><hr></td></tr>
+            <tr id="log-row">
+                <td >  
+                    <div id="log-cell"></div>
+                </td>
+            </tr>
+        </table>
+            <script>
+                // Function to replace header content
+                function replaceHeader(content) {
+                    const headerCell = document.getElementById('header-cell');
+                    headerCell.innerHTML = content;
+                }
+                
+                // Function to replace log content
+                function replaceLogContent(content) {
+                    const logCell = document.getElementById('log-cell');
+                    logCell.innerHTML = content;
+                }
+                // Listen for mouseup events to detect selection
+                document.addEventListener('mouseup', function() {
+                    var selectedText = window.getSelection().toString();
+                    if (selectedText) {
+                        // Send the selected text to Python via custom scheme
+                        window.location.href = 'app://selection?text=' + encodeURIComponent(selectedText);
+                    }
+                });      
+                // Detect right-click and check if text is selected
+                document.addEventListener('contextmenu', function(event) {
+                    var selectedText = window.getSelection().toString();
+                    if (selectedText) {
+                        // Send the selected text to Python via custom scheme
+                        event.preventDefault();  // Prevent the default context menu
+                        window.location.href = 'app://selection?text=' + encodeURIComponent(selectedText);
+                    } else {
+                        // Send a different URL to Python to indicate no selection
+                        event.preventDefault();
+                        window.location.href = 'app://show_back_menu';
+                    }
+                });                          
+            </script>
+        </body>
+        </html>
         """
-        self.webview.RunScript(script)
 
-    def append_text(self, text):
-        wx.CallAfter(self._append_text, text)
 
-    def _append_text(self, text):
-        safe_text = text.replace("\\", "\\\\").replace("`", "\\`").replace("\n", "<br>")
-        script = f"""
-            (function() {{
-                var content = document.getElementById('content');
-                var newText = `{safe_text}`;
-                content.innerHTML += newText;  // Append the content as HTML
-                window.scrollTo(0, document.body.scrollHeight);  // Scroll to the bottom
-            }})();
+        self.webview.SetPage(initial_html, "")
+
+
+    def add_image_as_log_entry(self, base64_image):
+        """Add an image as a log entry in the WebView."""
+        js_script = f"""
+            // Create a new row for the snapshot label
+            var table = document.getElementById('log-container');
+            var labelRow = document.createElement('tr');
+            var labelCell = document.createElement('td');
+            labelCell.textContent = 'Snapshot:';
+            labelCell.style.fontWeight = 'bold';
+            labelCell.style.padding = '10px 0';
+            labelRow.appendChild(labelCell);
+            table.appendChild(labelRow);
+
+            // Create a new row for the image
+            var imageRow = document.createElement('tr');
+            var imageCell = document.createElement('td');
+            var img = document.createElement('img');
+            img.src = 'data:image/png;base64,{base64_image}';
+            img.style.maxWidth = '150px';  // Thumbnail size
+            img.style.height = 'auto';    // Maintain aspect ratio
+            img.style.margin = '10px 0';  // Add spacing around the image
+            imageCell.appendChild(img);
+            imageRow.appendChild(imageCell);
+            table.appendChild(imageRow);
+
+            // Add a horizontal line for separation
+            var hrRow = document.createElement('tr');
+            var hrCell = document.createElement('td');
+            var hr = document.createElement('hr');
+            hr.style.margin = '10px 0';  // Add spacing around the line
+            hrCell.appendChild(hr);
+            hrRow.appendChild(hrCell);
+            table.appendChild(hrRow);
         """
-        self.webview.RunScript(script)
 
-
-
-
-
-
-    def append_chat_message(self, sender, message, is_streaming=False):
-        # Define CSS classes based on sender type
-        css_class = "user-message" if sender.lower() == "user" else "assistant-message"
-
-        safe_sender = sender.replace("\\", "\\\\").replace("`", "\\`")
-        safe_message = message.replace("\\", "\\\\").replace("`", "\\`").replace("\n", "<br>")
-
-        if is_streaming:
-            # Handle streaming content dynamically
-            script = f"""
-                (function() {{
-                    var content = document.getElementById('content');
-                    var lastLine = content.lastElementChild;
-
-                    if (!lastLine || !lastLine.classList.contains('streaming-line')) {{
-                        // Create a new entry for streaming text
-                        var line = document.createElement('div');
-                        line.className = '{css_class} streaming-line';
-                        line.innerHTML = '<b>{safe_sender}:</b> <span id="streaming-text"></span>';
-                        content.appendChild(line);
-                    }}
-
-                    var streamingText = document.getElementById('streaming-text');
-                    streamingText.innerHTML += `{safe_message}`;
-                    window.scrollTo(0, document.body.scrollHeight);
-                }})();
-            """
-
-        else:
-            # Append finalized content
-            script = f"""
-                (function() {{
-                    var content = document.getElementById('content');
-                    var line = document.createElement('div');
-                    line.className = '{css_class}';
-                    line.innerHTML = '<b>{safe_sender}:</b> {safe_message}';
-                    content.appendChild(line);
-
-                    // Remove streaming-line placeholder if it exists
-                    var streamingLine = document.querySelector('.streaming-line');
-                    if (streamingLine) {{
-                        streamingLine.remove();
-                    }}
-
-                    window.scrollTo(0, document.body.scrollHeight);
-                }})();
-            """
-        self.webview.RunScript(script)
-
-
-
-
-
-
-
-
-
+        # Execute the script in the WebView
+        self.webview.RunScript(js_script)
 
 
 class CoordinatesPanel(wx.Panel):
@@ -766,10 +630,10 @@ class CoordinatesPanel(wx.Panel):
                     wx.Yield() 
                     bitmap = self.take_screenshot(coordinates, return_bitmap=True)
                     if 1:
-                        
+                        base64_image = self.bitmap_to_base64(bitmap)
 
                         # Update the WebView to display the image
-                        self.webview_panel.update_webview_with_image(bitmap)
+                        self.webview_panel.add_image_as_log_entry(base64_image)
                         
                     # Add screenshot to the scrollable panel
                     canvas = wx.StaticBitmap(self.single_screenshot_tab, bitmap=bitmap)
@@ -800,8 +664,13 @@ class CoordinatesPanel(wx.Panel):
             self.show_frame(main_frame)  # Show the main frame again
 
 
-
-
+    def bitmap_to_base64(self, bitmap):
+        """Convert a wx.Bitmap to a base64-encoded PNG image."""
+        image = bitmap.ConvertToImage()
+        stream = io.BytesIO()
+        image.SaveFile(stream, wx.BITMAP_TYPE_PNG)
+        base64_image = base64.b64encode(stream.getvalue()).decode('utf-8')
+        return base64_image
         
     def show_frame(self,main_frame):
 
@@ -1179,6 +1048,12 @@ class ScreenshotApp(wx.App):
             raise e
 
 
+
+
+
+
+
+
     def handle_full_screenshot(self, pil_image, thumbnail, coordinates):
         """Handle the full screenshot, including coordinates, and update the UI."""
         if self.coordinates_frame is None:
@@ -1188,6 +1063,18 @@ class ScreenshotApp(wx.App):
         # Call the on_coordinates_selected method directly to handle the thumbnail addition
         if hasattr(self.coordinates_frame.panel, 'on_coordinates_selected'):
             self.coordinates_frame.panel.on_coordinates_selected(pil_image, thumbnail, coordinates)
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
