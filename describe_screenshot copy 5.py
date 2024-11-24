@@ -78,14 +78,12 @@ class WebViewPanel(wx.Panel):
         self.image_data = None
         self.request_counter = 0  # Add a counter for request IDs
         self.processing = False   # Add a flag to track processing state
-        self.auto_scroll = True
-
         # Create a splitter window
         self.splitter = wx.SplitterWindow(self)
 
         # Create the WebView as the top pane
         self.webview = wx.html2.WebView.New(self.splitter)
-        #self.webview.SetPage("<html><body></body></html>", "")
+        self.webview.SetPage("<html><body></body></html>", "")
 
         # Bind mouse enter/leave events to the WebView
         self.webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
@@ -113,14 +111,6 @@ class WebViewPanel(wx.Panel):
         self.ask_model_button.SetBackgroundColour(wx.Colour(144, 238, 144))  # Light green color
         self.ask_model_button.Bind(wx.EVT_BUTTON, self.on_ask_model_button_click)
         button_sizer.Add(self.ask_model_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
-
-        if 1:
-            self.auto_scroll_button = wx.ToggleButton(self.button_panel, label="Auto-Scroll: ON")
-            self.auto_scroll_button.SetValue(True)  # Default: ON
-            self.auto_scroll_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_auto_scroll)
-            button_panel_sizer.Add(self.auto_scroll_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
-
-
 
         # Add the collapse/expand button
         self.collapse_button = wx.Button(self.button_panel, label="Collapse")
@@ -151,10 +141,6 @@ class WebViewPanel(wx.Panel):
         wx.CallAfter(self.on_collapse_button_click, None)
         self.set_initial_content()
 
-    def toggle_auto_scroll(self, event):
-        """Toggle auto-scroll on or off."""
-        self.auto_scroll = self.auto_scroll_button.GetValue()
-        self.auto_scroll_button.SetLabel(f"Auto-Scroll: {'ON' if self.auto_scroll else 'OFF'}")
 
 
     def on_ask_model_button_click(self, event):
@@ -244,111 +230,137 @@ class WebViewPanel(wx.Panel):
 
 
     def _create_log_entry(self, user_message, request_id):
-        """Creates a new log entry with styled user prompt."""
+        """Creates a new log entry with better error handling."""
         try:
+            # Escape the user message for JavaScript
             safe_message = user_message.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n')
-
+            
             js_script = f"""
                 (function() {{
-                    var table = document.getElementById('log-container');
-                    if (!table) return;
-
-                    // Create a styled user message row
-                    var userRow = document.createElement('tr');
-                    userRow.id = 'user-{request_id}';
-                    var userCell = document.createElement('td');
-                    var userPrompt = document.createElement('div');
-                    userPrompt.className = 'user-prompt';
-                    userPrompt.textContent = 'User #{request_id}: {safe_message}';
-                    userCell.appendChild(userPrompt);
-                    userRow.appendChild(userCell);
-                    table.appendChild(userRow);
-
-                    // Create a model response row with styling
-                    var responseRow = document.createElement('tr');
-                    responseRow.id = 'response-{request_id}';
-                    var responseCell = document.createElement('td');
-                    var responseDiv = document.createElement('div');
-                    responseDiv.className = 'model-response';
-                    responseCell.appendChild(responseDiv);
-                    responseRow.appendChild(responseCell);
-                    table.appendChild(responseRow);
-
-                    // Auto-scroll if enabled
-                    if ({str(self.auto_scroll).lower()}) {{
+                    try {{
+                        var table = document.getElementById('log-container');
+                        if (!table) {{
+                            console.error('Log container not found');
+                            return;
+                        }}
+                        
+                        // User message row
+                        var userRow = document.createElement('tr');
+                        userRow.id = 'user-{request_id}';
+                        userRow.classList.add('user-row');
+                        var userCell = document.createElement('td');
+                        userCell.style.fontWeight = 'bold';
+                        userCell.style.padding = '10px 0';
+                        userCell.textContent = 'User #{request_id}: {safe_message}';
+                        userRow.appendChild(userCell);
+                        table.appendChild(userRow);
+                        
+                        // Model response row
+                        var modelRow = document.createElement('tr');
+                        modelRow.id = 'response-{request_id}';
+                        modelRow.classList.add('chat-row');
+                        var modelCell = document.createElement('td');
+                        modelCell.style.whiteSpace = 'pre-wrap';
+                        modelRow.appendChild(modelCell);
+                        table.appendChild(modelRow);
+                        
+                        // Scroll to bottom
                         table.scrollTop = table.scrollHeight;
+                    }} catch (error) {{
+                        console.error('Error creating log entry:', error);
                     }}
                 }})();
             """
+            
             self.webview.RunScript(js_script)
-
+            
         except Exception as e:
             print(f"Error creating log entry: {e}")
 
     def _append_response(self, request_id, content, is_streaming):
-        """Safely append response content with code formatting."""
+        """Safely append response content with better error handling."""
         try:
             if not content:
                 return
-
-            # Prepare the content with proper escaping
-            safe_content = (content
-                .replace('\\', '\\\\')
-                .replace("'", "\\'")
-                .replace('"', '\\"')
-                .replace('\n', '\\n')
-                .replace('\t', '\\t'))
-
+                
+            # Escape any JavaScript special characters
+            content = content.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n')
+            
             js_script = f"""
                 (function() {{
-                    var responseRow = document.getElementById('response-{request_id}');
-                    if (responseRow) {{
-                        var responseDiv = responseRow.querySelector('.model-response');
-                        if (responseDiv) {{
-                            var content = '{safe_content}';
-                            
-                            // Decode escaped newlines and tabs back to actual characters
-                            content = content.replace(/\\\\n/g, '\\n').replace(/\\\\t/g, '\\t');
-                            
-                            // Append the new content
-                            var textNode = document.createTextNode(content);
-                            responseDiv.appendChild(textNode);
-                            
-                            // Format code blocks if this is the end of streaming
-                            if (!{str(is_streaming).lower()}) {{
-                                formatCodeBlocks(responseDiv);
+                    try {{
+                        var responseRow = document.getElementById('response-{request_id}');
+                        if (responseRow) {{
+                            var cell = responseRow.firstElementChild;
+                            if (cell) {{
+                                cell.textContent += '{content}';
+                                responseRow.scrollIntoView({{behavior: 'smooth', block: 'end'}});
                             }}
                         }}
-                        
-                        // Auto-scroll if enabled
-                        if ({str(self.auto_scroll).lower()}) {{
-                            responseRow.scrollIntoView({{behavior: 'smooth', block: 'end'}});
-                        }}
+                    }} catch (error) {{
+                        console.error('Error appending response:', error);
                     }}
                 }})();
             """
             self.webview.RunScript(js_script)
-
+            
         except Exception as e:
             print(f"Error appending response: {e}")
 
-
     def add_image_as_log_entry(self, base64_image):
-        self.image_data = base64_image  
-        """Add an image to the snapshot container at the top of the WebView."""
-        js_script = """
-            (function() {
-                try {
-                    // Add the image to the snapshot container at the top
-                    addSnapshot('%s');
-                } catch (error) {
+        """Add an image as a log entry in the WebView."""
+        self.image_data = base64_image
+        
+        js_script = f"""
+            (function() {{
+                try {{
+                    var table = document.getElementById('log-container');
+                    if (!table) {{
+                        console.error('Log container not found');
+                        return;
+                    }}
+                    
+                    // Create snapshot label row
+                    var labelRow = document.createElement('tr');
+                    var labelCell = document.createElement('td');
+                    labelCell.textContent = 'Snapshot:';
+                    labelCell.style.fontWeight = 'bold';
+                    labelCell.style.padding = '10px 0';
+                    labelRow.appendChild(labelCell);
+                    table.appendChild(labelRow);
+
+                    // Create image row
+                    var imageRow = document.createElement('tr');
+                    var imageCell = document.createElement('td');
+                    var img = document.createElement('img');
+                    img.src = 'data:image/png;base64,{base64_image}';
+                    img.style.maxWidth = '150px';
+                    img.style.height = 'auto';
+                    img.style.margin = '10px 0';
+                    imageCell.appendChild(img);
+                    imageRow.appendChild(imageCell);
+                    table.appendChild(imageRow);
+
+                    // Create separator row
+                    var hrRow = document.createElement('tr');
+                    var hrCell = document.createElement('td');
+                    var hr = document.createElement('hr');
+                    hr.style.margin = '10px 0';
+                    hrCell.appendChild(hr);
+                    hrRow.appendChild(hrCell);
+                    table.appendChild(hrRow);
+                    
+                    // Scroll to bottom
+                    table.scrollTop = table.scrollHeight;
+                }} catch (error) {{
                     console.error('Error adding image:', error);
-                }
-            })();
-        """ % base64_image
+                }}
+            }})();
+        """
+        
+       
+        
         self.webview.RunScript(js_script)
-
-
     def on_collapse_button_click(self, event):
         print ("on_collapse_button_click", self.is_collapsed)  
         """Toggle collapsing or expanding the button panel."""
@@ -404,178 +416,94 @@ class WebViewPanel(wx.Panel):
             self.on_collapse_button_click(None)  # Collapse WebView and expand Bottom Panel        
         event.Skip()
 
-
     def set_initial_content(self):
         initial_html = """
         <html>
         <head>
         <style>
-            body {
+            /* Apply styling to the table with a class */
+            #log-table {
+                font-family: Arial, sans-serif;   /* Basic, clean font */
+                font-size: 16px;                  /* Regular font size */
+                line-height: 1.5;                 /* Readable line spacing */
+                color: #2d2d2d;                   /* Dark gray color */
+                width: 100%;                      /* Full width */
+                border-collapse: collapse;        /* Remove spacing between cells */
+            }
+
+            /* Styling for the header cell */
+            #header-cell {
+                font-weight: bold;
+                font-size: 20px;
+                padding: 10px;                    /* Add some padding */
+                background-color: #f6f6f6;        /* Light background for header */
+                border-bottom: 1px solid #ddd;    /* Border below header */
+            }
+
+            /* Styling for other table rows and cells */
+            #log-cell {
+                padding: 10px;
+            }
+
+            hr {
+                border: 0;
+                border-top: 1px solid #ddd;
                 margin: 0;
-                padding: 0;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                font-size: 14px;
-                line-height: 1.6;
-                color: #2d2d2d;
             }
-
-            #snapshot-container {
-                padding: 16px;
-                border-bottom: 1px solid #e5e7eb;
-                background-color: #f9fafb;
-            }
-
-            #log-container {
-                padding: 16px;
-                max-height: calc(100vh - 150px);
-                overflow-y: auto;
-            }
-
-            #snapshot-label {
-                margin: 0 0 8px 0;
-                font-weight: 600;
-                color: #374151;
-            }
-
-            .snapshot-image {
-                max-width: 150px;
-                height: auto;
-                margin: 4px 0;
-                border: 1px solid #e5e7eb;
-                border-radius: 6px;
-            }
-
-           .user-prompt {
-                background: linear-gradient(135deg, #2563eb, #1d4ed8);
-                color: white;
-                padding: 12px 16px;
-                border-radius: 8px;
-                margin: 8px 0;  /* Reduced from 16px to 8px */
-                font-weight: 500;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            }
-
-            .model-response {
-                position: relative;
-                padding: 16px;
-                margin: 8px 0;  /* Reduced from 16px to 8px */
-                border-left: 4px solid #2563eb;
-                background-color: #f8fafc;
-                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-                font-size: 13px;
-                white-space: break-spaces;
-                word-wrap: break-word;
-                tab-size: 4;
-                -moz-tab-size: 4;
-            }
-
-            .model-response pre {
-                margin: 12px 0;
-                padding: 16px;
-                border-radius: 6px;
-                background-color: #1e293b;
-                color: #e2e8f0;
-                overflow-x: auto;
-                white-space: pre;
-            }
-
-            .model-response code {
-                font-family: inherit;
-                tab-size: 4;
-                -moz-tab-size: 4;
-            }
-
-            table {
-                width: 100%;
-                border-collapse: separate;
-                border-spacing: 0;
-            }
-
-            td {
-                padding: 4px 8px;  /* Reduced top/bottom padding from 8px to 4px */
-                vertical-align: top;
-            }
-
-            /* Add spacing between response groups instead */
-            tr + tr {
-                margin-top: 16px;
-            }
-
-
-            .code-block {
-                position: relative;
-                margin: 16px 0;
-                background-color: #1e293b;
-                border-radius: 6px;
-                overflow: hidden;
-            }
-
-            .code-block pre {
-                margin: 0;
-                padding: 16px;
-                overflow-x: auto;
-            }
+        #log-container {
+            max-height: 500px;  
+            overflow-y: auto;   
+        }            
         </style>
         </head>
         <body>
-            <div id="snapshot-container">
-                <div id="snapshot-label">Recent Snapshots:</div>
-                <div id="snapshot-images"></div>
-            </div>
-
-            <table id="log-container">
-            </table>
-
+        <table  id="log-container">
+            <tr><td><hr></td></tr>
+            <tr id="log-row">
+                <td >  
+                    <div id="log-cell"></div>
+                </td>
+            </tr>
+        </table>
             <script>
-                function addSnapshot(base64Image) {
-                    const snapshotImages = document.getElementById('snapshot-images');
-                    const img = document.createElement('img');
-                    img.src = 'data:image/png;base64,' + base64Image;
-                    img.className = 'snapshot-image';
-                    img.loading = 'lazy';
-                    snapshotImages.insertBefore(img, snapshotImages.firstChild);
+                // Function to replace header content
+                function replaceHeader(content) {
+                    const headerCell = document.getElementById('header-cell');
+                    headerCell.innerHTML = content;
                 }
-
-                function formatCodeBlocks(element) {
-                    const text = element.textContent;
-                    const lines = text.split('\\n');
-                    
-                    // Check if this looks like a code block
-                    const hasIndentation = lines.some(line => line.startsWith('    ') || line.startsWith('\\t'));
-                    const hasCodeMarkers = text.includes('```') || (text.includes('def ') && text.includes('return'));
-                    
-                    if (hasIndentation || hasCodeMarkers) {
-                        const codeBlock = document.createElement('div');
-                        codeBlock.className = 'code-block';
-                        const pre = document.createElement('pre');
-                        pre.textContent = text;
-                        codeBlock.appendChild(pre);
-                        element.innerHTML = '';
-                        element.appendChild(codeBlock);
-                    }
+                
+                // Function to replace log content
+                function replaceLogContent(content) {
+                    const logCell = document.getElementById('log-cell');
+                    logCell.innerHTML = content;
                 }
-
-                // Handle text selection events
+                // Listen for mouseup events to detect selection
                 document.addEventListener('mouseup', function() {
-                    const selectedText = window.getSelection().toString();
+                    var selectedText = window.getSelection().toString();
                     if (selectedText) {
+                        // Send the selected text to Python via custom scheme
                         window.location.href = 'app://selection?text=' + encodeURIComponent(selectedText);
                     }
-                });
-
+                });      
+                // Detect right-click and check if text is selected
                 document.addEventListener('contextmenu', function(event) {
-                    const selectedText = window.getSelection().toString();
-                    event.preventDefault();
+                    var selectedText = window.getSelection().toString();
                     if (selectedText) {
+                        // Send the selected text to Python via custom scheme
+                        event.preventDefault();  // Prevent the default context menu
                         window.location.href = 'app://selection?text=' + encodeURIComponent(selectedText);
                     } else {
+                        // Send a different URL to Python to indicate no selection
+                        event.preventDefault();
                         window.location.href = 'app://show_back_menu';
                     }
-                });
+                });                          
             </script>
         </body>
         </html>
         """
+
+
         self.webview.SetPage(initial_html, "")
 
 
