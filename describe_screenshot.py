@@ -10,18 +10,79 @@ ctypes.windll.shcore.SetProcessDpiAwareness(2)
 from include.Controls import MonitorSelectionDialog, ScreenshotOverlay,  ThumbnailScrollPanel, ThumbnailToggleButton
 
 
+
+import  openai
+import base64
+import io 
+
+MODEL='gpt-4o-mini'
+conversation_history=[]
+client=openai.OpenAI()
+
+
+def describe_screenshot(prompt, model, image_data, append_callback=None, history=False):
+    global conversation_history, client
+    assert image_data, "Image data is required."
+
+    try:
+        ch = conversation_history if history else []
+
+        ch.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
+            ]
+        })
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=ch,
+            stream=True
+        )
+
+        assistant_response = ""
+        for chunk in response:
+            if hasattr(chunk.choices[0].delta, 'content'):
+                content = chunk.choices[0].delta.content
+                print (content, end="")
+                if content:
+                    assistant_response += content
+                    if append_callback:
+                        
+                        wx.CallAfter(append_callback, content, is_streaming=True)
+
+        # Finalize the response
+        if history:
+            ch.append({"role": "assistant", "content": assistant_response})
+
+        if append_callback:
+            wx.CallAfter(append_callback, assistant_response, is_streaming=False)
+
+    except Exception as e:
+        print(f"Error in describe_screenshot: {e}")
+        raise
+
+
+
 import base64
 import io
 class WebViewPanel(wx.Panel):
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
 
+        # Initialize member variables
+        self.active_threads = []
+        self.is_collapsed = False
+        self.image_data = None
+        self.request_counter = 0  # Add a counter for request IDs
+        self.processing = False   # Add a flag to track processing state
         # Create a splitter window
         self.splitter = wx.SplitterWindow(self)
 
         # Create the WebView as the top pane
         self.webview = wx.html2.WebView.New(self.splitter)
-        self.webview.SetPage("<html><body></body></html>", "")  # Initialize with an empty HTML page
+        self.webview.SetPage("<html><body></body></html>", "")
 
         # Bind mouse enter/leave events to the WebView
         self.webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
@@ -47,17 +108,18 @@ class WebViewPanel(wx.Panel):
 
         self.ask_model_button = wx.Button(self.button_panel, label=label, size=(button_size, button_size))
         self.ask_model_button.SetBackgroundColour(wx.Colour(144, 238, 144))  # Light green color
-        self.ask_model_button.Bind(wx.EVT_BUTTON, self.on_ask_model_button_click)  # Bind button click logic
+        self.ask_model_button.Bind(wx.EVT_BUTTON, self.on_ask_model_button_click)
         button_sizer.Add(self.ask_model_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
         # Add the collapse/expand button
         self.collapse_button = wx.Button(self.button_panel, label="Collapse")
-        self.collapse_button.Bind(wx.EVT_BUTTON, self.on_collapse_button_click)  # Bind collapse/expand logic
+        self.collapse_button.Bind(wx.EVT_BUTTON, self.on_collapse_button_click)
         button_sizer.Add(self.collapse_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
         button_panel_sizer.Add(button_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         self.button_panel.SetSizer(button_panel_sizer)
-        # Bind mouse enter/leave events to the button panel
+
+        # Bind mouse events to the button panel
         self.button_panel.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_button_panel)
         self.button_panel.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_panel)
 
@@ -65,22 +127,239 @@ class WebViewPanel(wx.Panel):
         self.splitter.SplitHorizontally(self.webview, self.button_panel)
 
         # Adjust sash position and behavior
-        self.splitter.SetSashGravity(0.9)  # Allocate 90% of the space to the WebView initially
-        self.splitter.SetMinimumPaneSize(50)  # Allow collapsing to a minimal height
-        wx.CallAfter(self.splitter.SetSashPosition, int(self.GetSize().y * 0.9))  # Dynamically set the sash position
+        self.splitter.SetSashGravity(0.9)
+        self.splitter.SetMinimumPaneSize(50)
+        wx.CallAfter(self.splitter.SetSashPosition, int(self.GetSize().y * 0.9))
 
         # Add the splitter to the main panel's sizer
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         main_sizer.Add(self.splitter, 1, wx.EXPAND)
         self.SetSizer(main_sizer)
 
-        # Track the collapsed state
-        self.is_collapsed = False
+        # Initialize content and collapse state
         wx.CallAfter(self.on_collapse_button_click, None)
         self.set_initial_content()
-    def on_ask_model_button_click(self, event):
-        print("on_ask_model_button_click")
 
+
+
+    def on_ask_model_button_click(self, event):
+        """
+        Handles the 'Ask Model' button click with improved thread management.
+        """
+        # Check if already processing
+        if self.processing:
+            print("Already processing a request")
+            return
+            
+        try:
+            # Set processing flag
+            self.processing = True
+            self.ask_model_button.Disable()
+            
+            # Get user message
+            user_message = self.prompt_text_ctrl.GetValue().strip()
+            if not user_message:
+                wx.MessageBox("Please enter a prompt before asking the model.", "Input Required", wx.OK | wx.ICON_WARNING)
+                return
+
+            # Increment request counter
+            self.request_counter += 1
+            request_id = self.request_counter
+            
+            # Create the log entry first
+            wx.CallAfter(self._create_log_entry, user_message, request_id)
+            
+            # Create and start new thread
+            thread = threading.Thread(
+                target=self._stream_model_response,
+                args=(user_message, request_id),
+                daemon=True,
+                name=f"ModelThread-{request_id}"
+            )
+            
+            # Clean up completed threads before adding new one
+            self.active_threads = [t for t in self.active_threads if t.is_alive()]
+            self.active_threads.append(thread)
+            thread.start()
+
+        except Exception as e:
+            print(f"Error in ask_model_button_click: {e}")
+            wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            
+        finally:
+            # Re-enable button and reset processing flag after delay
+            def reset_state():
+                self.processing = False
+                self.ask_model_button.Enable()
+                
+            wx.CallLater(1000, reset_state)
+
+    def _stream_model_response(self, user_message, request_id):
+        """Handles model response streaming with improved error handling."""
+        try:
+            if not self.image_data:
+                wx.CallAfter(wx.MessageBox, "No image data found to send to the model.", "Error", wx.OK | wx.ICON_ERROR)
+                return
+
+            def append_callback(content, is_streaming):
+                if content:  # Only append if there's actual content
+                    wx.CallAfter(self._append_response, request_id, content, is_streaming)
+
+            describe_screenshot(user_message, MODEL, self.image_data, append_callback=append_callback)
+
+        except Exception as e:
+            print(f"Error in _stream_model_response for request {request_id}: {e}")
+            error_msg = f"\n\nError: {str(e)}"
+            wx.CallAfter(self._append_response, request_id, error_msg, False)
+            wx.CallAfter(wx.MessageBox, f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+
+        finally:
+            current_thread = threading.current_thread()
+            if current_thread in self.active_threads:
+                wx.CallAfter(self._remove_thread, current_thread)
+
+    def _remove_thread(self, thread):
+        """Safely remove a thread from active threads."""
+        try:
+            if thread in self.active_threads:
+                self.active_threads.remove(thread)
+                print(f"Thread {thread.name} removed. Active threads: {len(self.active_threads)}")
+        except Exception as e:
+            print(f"Error removing thread: {e}")
+
+
+    def _create_log_entry(self, user_message, request_id):
+        """Creates a new log entry with better error handling."""
+        try:
+            # Escape the user message for JavaScript
+            safe_message = user_message.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n')
+            
+            js_script = f"""
+                (function() {{
+                    try {{
+                        var table = document.getElementById('log-container');
+                        if (!table) {{
+                            console.error('Log container not found');
+                            return;
+                        }}
+                        
+                        // User message row
+                        var userRow = document.createElement('tr');
+                        userRow.id = 'user-{request_id}';
+                        userRow.classList.add('user-row');
+                        var userCell = document.createElement('td');
+                        userCell.style.fontWeight = 'bold';
+                        userCell.style.padding = '10px 0';
+                        userCell.textContent = 'User #{request_id}: {safe_message}';
+                        userRow.appendChild(userCell);
+                        table.appendChild(userRow);
+                        
+                        // Model response row
+                        var modelRow = document.createElement('tr');
+                        modelRow.id = 'response-{request_id}';
+                        modelRow.classList.add('chat-row');
+                        var modelCell = document.createElement('td');
+                        modelCell.style.whiteSpace = 'pre-wrap';
+                        modelRow.appendChild(modelCell);
+                        table.appendChild(modelRow);
+                        
+                        // Scroll to bottom
+                        table.scrollTop = table.scrollHeight;
+                    }} catch (error) {{
+                        console.error('Error creating log entry:', error);
+                    }}
+                }})();
+            """
+            
+            self.webview.RunScript(js_script)
+            
+        except Exception as e:
+            print(f"Error creating log entry: {e}")
+
+    def _append_response(self, request_id, content, is_streaming):
+        """Safely append response content with better error handling."""
+        try:
+            if not content:
+                return
+                
+            # Escape any JavaScript special characters
+            content = content.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n')
+            
+            js_script = f"""
+                (function() {{
+                    try {{
+                        var responseRow = document.getElementById('response-{request_id}');
+                        if (responseRow) {{
+                            var cell = responseRow.firstElementChild;
+                            if (cell) {{
+                                cell.textContent += '{content}';
+                                responseRow.scrollIntoView({{behavior: 'smooth', block: 'end'}});
+                            }}
+                        }}
+                    }} catch (error) {{
+                        console.error('Error appending response:', error);
+                    }}
+                }})();
+            """
+            self.webview.RunScript(js_script)
+            
+        except Exception as e:
+            print(f"Error appending response: {e}")
+
+    def add_image_as_log_entry(self, base64_image):
+        """Add an image as a log entry in the WebView."""
+        self.image_data = base64_image
+        
+        js_script = f"""
+            (function() {{
+                try {{
+                    var table = document.getElementById('log-container');
+                    if (!table) {{
+                        console.error('Log container not found');
+                        return;
+                    }}
+                    
+                    // Create snapshot label row
+                    var labelRow = document.createElement('tr');
+                    var labelCell = document.createElement('td');
+                    labelCell.textContent = 'Snapshot:';
+                    labelCell.style.fontWeight = 'bold';
+                    labelCell.style.padding = '10px 0';
+                    labelRow.appendChild(labelCell);
+                    table.appendChild(labelRow);
+
+                    // Create image row
+                    var imageRow = document.createElement('tr');
+                    var imageCell = document.createElement('td');
+                    var img = document.createElement('img');
+                    img.src = 'data:image/png;base64,{base64_image}';
+                    img.style.maxWidth = '150px';
+                    img.style.height = 'auto';
+                    img.style.margin = '10px 0';
+                    imageCell.appendChild(img);
+                    imageRow.appendChild(imageCell);
+                    table.appendChild(imageRow);
+
+                    // Create separator row
+                    var hrRow = document.createElement('tr');
+                    var hrCell = document.createElement('td');
+                    var hr = document.createElement('hr');
+                    hr.style.margin = '10px 0';
+                    hrCell.appendChild(hr);
+                    hrRow.appendChild(hrCell);
+                    table.appendChild(hrRow);
+                    
+                    // Scroll to bottom
+                    table.scrollTop = table.scrollHeight;
+                }} catch (error) {{
+                    console.error('Error adding image:', error);
+                }}
+            }})();
+        """
+        
+       
+        
+        self.webview.RunScript(js_script)
     def on_collapse_button_click(self, event):
         print ("on_collapse_button_click", self.is_collapsed)  
         """Toggle collapsing or expanding the button panel."""
@@ -227,44 +506,9 @@ class WebViewPanel(wx.Panel):
         self.webview.SetPage(initial_html, "")
 
 
-    def add_image_as_log_entry(self, base64_image):
-        """Add an image as a log entry in the WebView."""
-        js_script = f"""
-            // Create a new row for the snapshot label
-            var table = document.getElementById('log-container');
-            var labelRow = document.createElement('tr');
-            var labelCell = document.createElement('td');
-            labelCell.textContent = 'Snapshot:';
-            labelCell.style.fontWeight = 'bold';
-            labelCell.style.padding = '10px 0';
-            labelRow.appendChild(labelCell);
-            table.appendChild(labelRow);
 
-            // Create a new row for the image
-            var imageRow = document.createElement('tr');
-            var imageCell = document.createElement('td');
-            var img = document.createElement('img');
-            img.src = 'data:image/png;base64,{base64_image}';
-            img.style.maxWidth = '150px';  // Thumbnail size
-            img.style.height = 'auto';    // Maintain aspect ratio
-            img.style.margin = '10px 0';  // Add spacing around the image
-            imageCell.appendChild(img);
-            imageRow.appendChild(imageCell);
-            table.appendChild(imageRow);
 
-            // Add a horizontal line for separation
-            var hrRow = document.createElement('tr');
-            var hrCell = document.createElement('td');
-            var hr = document.createElement('hr');
-            hr.style.margin = '10px 0';  // Add spacing around the line
-            hrCell.appendChild(hr);
-            hrRow.appendChild(hrCell);
-            table.appendChild(hrRow);
-        """
-
-        # Execute the script in the WebView
-        self.webview.RunScript(js_script)
-
+                        
 
 class CoordinatesPanel(wx.Panel):
     def __init__(self, parent, coordinates, callback, *args, **kwargs):
