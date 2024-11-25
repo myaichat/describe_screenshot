@@ -118,7 +118,7 @@ class WebViewPanel(wx.Panel):
             self.auto_scroll_button = wx.ToggleButton(self.button_panel, label="Auto-Scroll: ON")
             self.auto_scroll_button.SetValue(True)  # Default: ON
             self.auto_scroll_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_auto_scroll)
-            button_panel_sizer.Add(self.auto_scroll_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+            button_sizer.Add(self.auto_scroll_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
 
 
@@ -1192,7 +1192,7 @@ class CoordinatesFrame(wx.Frame):
         self.canvas_size = (700, 600)  # Fixed canvas size
 
         self.SetTitle("Multi Area Screenshot")
-        self.SetSize((1800, 1200))
+        self.SetSize((1800, 1800))
 
         # Add the CoordinatesPanel
         self.panel = CoordinatesPanel(self, coordinates, callback)
