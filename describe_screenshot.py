@@ -116,6 +116,72 @@ on_collapse_button_click False
         client.close()
         #wx.CallAfter(self.webview_panel.ask_model_button.Enable)
 
+class ModelRadioBox(wx.Panel):
+    def __init__(self, parent, model_names, default_selection=0):
+        super().__init__(parent)
+        
+        self.model_names = model_names
+        self.current_model = model_names[default_selection]
+
+        self.radio_box = wx.RadioBox(
+            self,
+            choices=model_names,
+            majorDimension=1,
+            style=wx.RA_SPECIFY_COLS
+        )
+        self.radio_box.SetSelection(default_selection)
+        self.radio_box.Bind(wx.EVT_RADIOBOX, self.on_model_select)
+
+        # Layout
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self.radio_box, 1, wx.EXPAND | wx.ALL, 5)
+        self.SetSizer(sizer)
+        
+    def on_model_select(self, event):
+        self.current_model = self.model_names[event.GetSelection()]
+        print(self.current_model)
+        
+    def get_current_model(self):
+        return self.current_model
+
+
+class ModelSelectionNotebook(wx.Notebook):
+    def __init__(self, parent):
+        super().__init__(parent, style=wx.NB_TOP | wx.NB_MULTILINE)
+        
+        # OpenAI models
+        openai_models = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o"]
+        default_openai_selection = 1  # Default to "gpt-4o-mini"
+        openai_page = ModelRadioBox(self, openai_models, default_openai_selection)
+        self.AddPage(openai_page, "OpenAI")
+
+        # Claude models
+        claude_models = ["claude-3-5-haiku-latest","claude-3-5-sonnet-latest"]
+        default_claude_selection = 0  # Default to "Claude 3 Haiku"
+        claude_page = ModelRadioBox(self, claude_models, default_claude_selection)
+        self.AddPage(claude_page, "Claude 3.5")
+
+        claude_models2 = ["claude-3-opus-latest", "claude-3-sonnet-20240229","claude-3-haiku-20240307"]
+        default_claude_selection2 = 0  # Default to "Claude 3 Haiku"
+        claude_page2 = ModelRadioBox(self, claude_models2, default_claude_selection2)
+        self.AddPage(claude_page2, "Claude 3")
+
+
+        # Store references for accessing selected models later
+        self.openai_radiobox = openai_page
+        self.claude_radiobox = claude_page
+        self.claude_radiobox2 = claude_page2
+
+    def get_selected_models(self):
+        return {
+            "OpenAI": self.openai_radiobox.get_current_model(),
+            "Claude": self.claude_radiobox.get_current_model(),
+            "Claude2": self.claude_radiobox2.get_current_model()
+        }
+
+
+
+
 import base64
 import io
 class WebViewPanel(wx.Panel):
@@ -159,6 +225,10 @@ class WebViewPanel(wx.Panel):
         self.collapse_button = wx.Button(self.button_panel, label="Collapse")
         self.collapse_button.Bind(wx.EVT_BUTTON, self.on_collapse_button_click)
         button_sizer.Add(self.collapse_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        
+
+        self.notebook = ModelSelectionNotebook(self.button_panel)
+        button_sizer.Add(self.notebook, 0, wx.EXPAND | wx.ALL, 5)   
 
         # Add another spacer
         button_sizer.AddStretchSpacer(1)
@@ -209,6 +279,7 @@ class WebViewPanel(wx.Panel):
         # Initialize content and collapse state
         wx.CallAfter(self.on_collapse_button_click, None)
         self.set_initial_content()
+    
 
     def toggle_auto_scroll(self, event):
         """Toggle auto-scroll on or off."""
@@ -259,7 +330,8 @@ class WebViewPanel(wx.Panel):
 
         except Exception as e:
             print(f"Error in ask_model_button_click: {e}")
-            wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            #wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            raise e
             
         finally:
             # Re-enable button and reset processing flag after delay
@@ -282,8 +354,8 @@ class WebViewPanel(wx.Panel):
                 if content:  # Only append if there's actual content
                     #wx.CallAfter(self._append_response, request_id, content, is_streaming)
                     self._append_response(request_id, content, is_streaming)
-
-            describe_screenshot(user_message, MODEL, self.image_data, append_callback=append_callback)
+            model=self.notebook.get_selected_models()['OpenAI']
+            describe_screenshot(user_message, model, self.image_data, append_callback=append_callback)
 
         except Exception as e:
             print(f"Error in _stream_model_response for request {request_id}: {e}")
