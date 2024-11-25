@@ -218,7 +218,8 @@ class WebViewPanel(wx.Panel):
 
             def append_callback(content, is_streaming):
                 if content:  # Only append if there's actual content
-                    wx.CallAfter(self._append_response, request_id, content, is_streaming)
+                    #wx.CallAfter(self._append_response, request_id, content, is_streaming)
+                    self._append_response(request_id, content, is_streaming)
 
             describe_screenshot(user_message, MODEL, self.image_data, append_callback=append_callback)
 

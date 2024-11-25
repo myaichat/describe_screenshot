@@ -1,0 +1,223 @@
+Master Your Interviews with wxPython-Driven ‘Screenshot Describer’: Archive, Analyze, Ace
+alex buzunov
+alex buzunov
+
+8 min read
+·
+8 hours ago
+
+
+
+
+
+Regrets are an inescapable part of being human. One of mine? Fumbling those interview questions that could’ve landed me my dream job. While some regrets are bound to stick with us until our deathbeds, others are surprisingly fixable with the right tools.
+
+
+Today, I’m introducing “Screenshot Describer” — your trusty interview copilot. It’s here to help you archive, analyze, and master interview questions, all powered by cutting-edge LLM vision functionality.
+
+Building Upon The Previous Work
+The foundation of Screenshot Describer lies in a multi-area screenshot script initially crafted using wxPython. This tool offers a dynamic way to capture multiple screen regions with precision and flexibility. But rather than stopping there, I’ve layered advanced functionality on top, making it a complete solution for interview preparation and beyond.
+
+The Inspiration
+In its initial form, the multi-area screenshot tool was a simple utility designed for capturing specific screen regions. It introduced features like:
+
+Resizable Capture Areas: Drag, resize, and define exactly what you want to screenshot.
+File-Saving Dialogs: Save screenshots in the format and location of your choice.
+Single and Multi-Monitor Support: Capture across multiple displays seamlessly.
+While powerful in its own right, the tool had untapped potential. By integrating modern LLM-powered vision technology and enhancing its UI, we transformed it into a smart, multi-functional assistant.
+
+Installation
+To get started, you’ll need a few Python libraries. Install them using the following command:
+
+pip install keyboard wxpython mss pillow openai
+Here’s a quick breakdown of what each library does:
+
+keyboard: For handling keyboard events.
+wxPython: A GUI library for building the user interface.
+mss: For fast, cross-platform screen capture.
+Pillow: For image processing tasks.
+OpenAI: Vision functionality
+Get the Code
+To get started with the multi-monitor screenshot manager, clone the repository and checkout the specific version of the code. Follow these steps:
+
+Steps to Download the Code
+Clone the Repository:
+Open your terminal or command prompt and run:
+git clone https://github.com/myaichat/describe_screenshot.git 
+cd describe_screenshot
+git checkout 7d6cc18c3e3b8b9eb6d3ca4b0bda0994af55957d
+This ensures that you’re working with the tested version of the script as described in this guide.
+
+Test
+When you run the script:
+
+describe_screenshot> python describe_screenshot.py
+1. Monitor Selection
+The application starts with a Monitor Selector Dialog. This dialog dynamically detects all available monitors and displays their resolutions, allowing you to choose the one you want to use for screenshots. It utilizes a wx.RadioBox to present the list of monitors, ensuring a clear and user-friendly selection process.
+
+
+2. Semi-Transparent Overlay
+After selecting a monitor, the app transitions to a semi-transparent full-screen overlay. This overlay enables you to define the area of the screen you want to capture:
+
+Hold the Left Mouse Button: Click and drag across the screen to mark the desired screenshot region.
+Release the Mouse Button: The selected region is captured, and the app automatically advances to the main frame.
+3. Main Frame
+Once the selection is complete, the main application window appears (as shown in the screenshot). Here’s an overview of its layout and functionality:
+
+Left Panel:
+
+Displays the groups and coordinates of the screenshots you’ve taken.
+Allows you to manage screenshot groups, update coordinates, or add new ones.
+Center Panel:
+
+Shows a preview of recent snapshots.
+Provides options to “Describe this image” using integrated AI tools.
+Bottom Buttons:
+
+Functions for taking single or grouped screenshots.
+Options to save captured screenshots or finalize groups.
+AI-Powered Assistance:
+
+Use the “Describe this image” option to analyze captured screenshots and get insights powered by modern LLMs.
+
+Snapshot of sample code.
+Invoking the LLM Analysis
+Type “Describe this image” text box under the preview.
+You can optionally type a prompt (e.g., “Summarize this code snippet” or “Analyze the error in this image”).
+Click the “Ask Model” button to send the image and your query to the integrated LLM for analysis.
+AI Processing: Using OpenAI
+To integrate OpenAI’s GPT-4 (or compatible models) for screenshot analysis, Screenshot Describer relies on the describe_screenshot function. This function uses a combination of OpenAI's API and the power of wxPython to provide real-time insights on captured screenshots.
+
+Below is a breakdown of how the AI processing works and how the function is implemented:
+
+The describe_screenshot Function
+This function sends both text prompts and screenshot data to OpenAI’s model, retrieves the response, and streams it back to the application interface.
+
+def describe_screenshot(prompt, model, image_data, append_callback=None, history=False):
+    global conversation_history, client
+    assert image_data, "Image data is required."
+
+    try:
+        # Initialize conversation history if necessary
+        ch = conversation_history if history else []
+
+        # Append the user's input (text + image)
+        ch.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
+            ]
+        })
+
+        # Make the API call to OpenAI for chat completions
+        response = client.chat.completions.create(
+            model=model,
+            messages=ch,
+            stream=True
+        )
+
+        # Initialize the assistant's response
+        assistant_response = ""
+        for chunk in response:
+            if hasattr(chunk.choices[0].delta, 'content'):
+                content = chunk.choices[0].delta.content
+                print(content, end="")  # Stream the response in real-time to the console
+                if content:
+                    assistant_response += content
+                    if append_callback:
+                        # Update UI with the streamed response
+                        wx.CallAfter(append_callback, content, is_streaming=True)
+
+        # Finalize the assistant's response and optionally save conversation history
+        if history:
+            ch.append({"role": "assistant", "content": assistant_response})
+
+    except Exception as e:
+        # Handle errors gracefully
+        print(f"Error in describe_screenshot: {e}")
+        if append_callback:
+            append_callback(f"Error: {str(e)}", is_streaming=False)
+        raise
+Result of Description:
+The result of the “Describe this image” feature demonstrates the application of AI in interpreting a Python code snippet. Here’s a workflow.
+
+Workflow Highlighted
+When the user clicks the “Ask Model” button:
+
+The input query (“Describe this image”) is passed to the AI.
+The AI analyzes the screenshot (e.g., Python code) and generates this structured response.
+The response is streamed and displayed clearly in this section.
+
+Transcribing Screenshots
+Another powerful feature of Screenshot Describer is the ability to transcribe screenshots into text. This feature enables users to extract text content from any screenshot, making it especially useful for working with code snippets, documentation, or even error messages.
+
+Here’s how the transcribing process works:
+
+How Transcription Works
+1. Capturing the Screenshot
+The process begins by capturing a screenshot using the app’s multi-area selection tool or importing an image into the Recent Snapshots panel.
+Once the screenshot is selected, users can initiate the transcription feature by typing a query, such as “transcribe this image”, into the text box below the image preview.
+
+2. AI-Powered Transcription
+When the “Ask Model” button is clicked, the app sends the screenshot data to an integrated LLM with OCR (Optical Character Recognition) capabilities.
+
+The AI processes the image to:
+
+Detect and extract text embedded in the screenshot.
+Return the text in a structured format.
+3. Real-Time Response Display
+The transcribed content is streamed back to the Response Display Panel, shown under a new query labeled User #2: transcribe this image.
+
+The extracted text is displayed as formatted code (if the screenshot contains code) or as plain text for other content types.
+
+Describing Images
+The Screenshot Describer app extends its functionality beyond text transcription to interpreting and describing images. This feature leverages AI-powered vision models to provide meaningful context for any visual content, making it an invaluable tool for users working with diverse image types, such as photographs, graphics, or diagrams.
+
+How It Works
+1. Capturing an Image
+Users can capture a screenshot of an image.
+The image preview ensures clarity, allowing users to confirm their selection before proceeding.
+2. Invoking Image Description
+In the “Describe this image” text box, users can optionally provide a query or simply click the “Ask Model” button to generate a description.
+The AI processes the visual data and responds with a detailed interpretation.
+Describing a Scene
+
+AI Response
+The AI provides the following interpretation:
+
+“The image depicts a dramatic scene where a person stands on a beach facing the ocean, holding a flag that has blue and yellow colors, suggesting it is the Ukrainian flag. In the background, there is a military ship that appears to be under attack, with large explosions and smoke billowing from it. The sky is dark and foreboding, enhancing the intensity of the situation. Additionally, the text ‘DAY 1005’ is prominently displayed, likely indicating a specific duration related to a significant event. The overall tone conveys a sense of conflict and resilience.”
+
+Capturing Interview Questions
+The Screenshot Describer app showcases its potential as a valuable tool for interview preparation by capturing and answering questions directly from screenshots. Here’s how this feature works, based on the example provided:
+
+
+How It Works
+Capture the Question:
+
+Users can take a screenshot of an interview question using the app’s multi-area capture tool. The captured image is displayed in the Recent Snapshots section for confirmation.
+Query the AI:
+
+In the text box, users can type specific prompts such as “answer the question” and click the “Ask Model” button.
+The app processes the image, extracts the question text, and uses its LLM capabilities to generate a comprehensive answer.
+Response Display:
+
+The AI’s answer is displayed in the Response Panel under the user query, providing a clear and structured explanation.
+
+Conclusion
+Success in interviews and at work often comes down to preparation and practice. Screenshot Describer is designed to help you excel by giving you the ability to capture, archive, and analyze interview questions effortlessly. This tool ensures you can revisit these questions at any time, turning them into a library for continuous improvement.
+
+By archiving questions, you create a personalized database of scenarios to practice repeatedly, helping you build confidence and refine your answers. Whether it’s technical concepts, problem-solving exercises, or understanding key principles.
+
+Happy ScreenShotting!
+
+Source
+GitHub - myaichat/describe_screenshot: Describe screenshot using vision model
+Describe screenshot using vision model. Contribute to myaichat/describe_screenshot development by creating an account…
+github.com
+
+Llm
+OpenAI
+Interview Preparation
+Ai Productivity
+Job Interview Tips
