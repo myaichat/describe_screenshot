@@ -3,25 +3,28 @@ import os, time
 import threading
 import keyboard  # For global hotkeys
 from PIL import Image
-
+from pprint import pprint as pp
 import wx.html2 
 import ctypes
 ctypes.windll.shcore.SetProcessDpiAwareness(2)
 from include.Controls import MonitorSelectionDialog, ScreenshotOverlay,  ThumbnailScrollPanel, ThumbnailToggleButton
 
-
+import sys
+sys.setrecursionlimit(200)
 
 import  openai
 import base64
 import io 
 
 MODEL='gpt-4o-mini'
-conversation_history=[]
-client=openai.OpenAI()
+
+
 
 
 def describe_screenshot(prompt, model, image_data, append_callback=None, history=False):
-    global conversation_history, client
+    #global conversation_history, client
+    client=openai.OpenAI()
+    conversation_history=[]
     assert image_data, "Image data is required."
 
     try:
@@ -34,27 +37,72 @@ def describe_screenshot(prompt, model, image_data, append_callback=None, history
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
             ]
         })
-
-        response = client.chat.completions.create(
-            model=model,
-            messages=ch,
-            stream=True
-        )
-
-        assistant_response = ""
-        for chunk in response:
-            if hasattr(chunk.choices[0].delta, 'content'):
-                content = chunk.choices[0].delta.content
-                print (content, end="")
-                if content:
-                    assistant_response += content
+        if 1:
+            # Simulated response for debugging purposes
+            test_response = r"""
+RecursionError: maximum recursion depth exceeded
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot>
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
+Initializing App
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
+Initializing App
+Selected Monitor: 1
+Opening overlay...
+on_collapse_button_click False
+Showing CoordinatesFrame 222
+Mouse entered Bottom Panel. True
+on_collapse_button_click True
+Mouse entered Bottom Panel. False
+Mouse entered Bottom Panel. False
+[1125/091343.384:ERROR:window_impl.cc(121)] Failed to unregister class Chrome_WidgetWin_0. Error = 1411
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
+Initializing App
+Selected Monitor: 1
+Opening overlay...
+on_collapse_button_click False
+Showing CoordinatesFrame 222
+Mouse entered Bottom Panel. True
+on_collapse_button_click True
+Mouse entered Bottom Panel. False
+Mouse entered Bottom Panel. False
+Mouse entered Bottom Panel. False
+Thread ModelThread-1 removed. Active threads: 0
+Mouse left Bottom Panel. False
+on_collapse_button_click False
+"""         
+            for line in test_response.splitlines():
+                for word in line.split():
                     if append_callback:
-                        
-                        wx.CallAfter(append_callback, content, is_streaming=True)
+                        wx.CallAfter(append_callback, f'{word} ', is_streaming=True)
+                    time.sleep(0.05)  # Simulating delay for streaming responses
+                wx.CallAfter(append_callback, 'new line \n', is_streaming=True)
+                print (len(line))
+            
+        else:
+            response = client.chat.completions.create(
+                model=model,
+                messages=ch,
+                stream=True
+            )
 
-        # Finalize the response
-        if history:
-            ch.append({"role": "assistant", "content": assistant_response})
+            assistant_response = ""
+            for chunk in response:
+                if hasattr(chunk.choices[0].delta, 'content'):
+                    content = chunk.choices[0].delta.content
+                    print (content, end="")
+                    if content:
+                        assistant_response += content
+                        if append_callback:
+                            wx.CallAfter(append_callback, content, is_streaming=True)   
+                            #append_callback(content, is_streaming=True)
+            #return
+            # Finalize the response
+            if history:
+                ch.append({"role": "assistant", "content": assistant_response})
 
 
 
@@ -64,7 +112,9 @@ def describe_screenshot(prompt, model, image_data, append_callback=None, history
             append_callback(f"Error: {str(e)}", is_streaming=False)        
         raise
 
-
+    finally:
+        client.close()
+        #wx.CallAfter(self.webview_panel.ask_model_button.Enable)
 
 import base64
 import io
@@ -79,7 +129,9 @@ class WebViewPanel(wx.Panel):
         self.request_counter = 0  # Add a counter for request IDs
         self.processing = False   # Add a flag to track processing state
         self.auto_scroll = True
-
+    
+              
+        
         # Create a splitter window
         self.splitter = wx.SplitterWindow(self)
 
@@ -169,6 +221,7 @@ class WebViewPanel(wx.Panel):
         try:
             # Set processing flag
             self.processing = True
+           
             self.ask_model_button.Disable()
             
             # Get user message
@@ -203,11 +256,13 @@ class WebViewPanel(wx.Panel):
             
         finally:
             # Re-enable button and reset processing flag after delay
-            def reset_state():
-                self.processing = False
-                self.ask_model_button.Enable()
-                
-            wx.CallLater(1000, reset_state)
+            if 0:
+                def reset_state():
+                    self.processing = False
+                    
+                    self.ask_model_button.Enable()
+                    
+                wx.CallLater(1000, reset_state)
 
     def _stream_model_response(self, user_message, request_id):
         """Handles model response streaming with improved error handling."""
@@ -233,6 +288,8 @@ class WebViewPanel(wx.Panel):
             current_thread = threading.current_thread()
             if current_thread in self.active_threads:
                 wx.CallAfter(self._remove_thread, current_thread)
+                wx.CallAfter(self.ask_model_button.Enable)
+                self.processing = False
 
     def _remove_thread(self, thread):
         """Safely remove a thread from active threads."""
@@ -291,7 +348,8 @@ class WebViewPanel(wx.Panel):
         try:
             if not content:
                 return
-
+            if "<script>" in content:  # Example validation
+                raise Exception("Invalid content detected!")
             # Prepare the content with proper escaping
             safe_content = (content
                 .replace('\\', '\\\\')
@@ -351,16 +409,19 @@ class WebViewPanel(wx.Panel):
 
 
     def on_collapse_button_click(self, event):
-        print ("on_collapse_button_click", self.is_collapsed)  
+        if  self.processing:
+            print("on_mouse_leave_panel disabled due to current state.")
+            return        
+        print ("on_collapse_button_click", self.is_collapsed, self.processing)  
         """Toggle collapsing or expanding the button panel."""
         if self.is_collapsed:
             # Expand the button panel
-            self.splitter.SetSashPosition(int(self.GetSize().y / 2))  # Restore to half space
+            self.splitter.SetSashPosition(int(self.GetSize().y / 3*2))  # Restore to half space
             self.collapse_button.SetLabel("Collapse")
             #self.is_collapsed = False
         else:
             # Collapse the button panel to its minimum height
-            self.splitter.SetSashPosition(self.GetSize().y - 50)  # Set sash to near-bottom
+            self.splitter.SetSashPosition(self.GetSize().y - 100)  # Set sash to near-bottom
             self.collapse_button.SetLabel("Expand")
             #self.is_collapsed = True
 
@@ -388,6 +449,11 @@ class WebViewPanel(wx.Panel):
 
     def on_mouse_leave_panel(self, event):
         """Handle mouse leaving the bottom button panel."""
+        # Exit early if "Ask Model" is disabled or streaming is active
+        if  self.processing:
+            print("on_mouse_leave_panel disabled due to current state.")
+            return
+
         # Get the mouse position in screen coordinates
         mouse_position = wx.GetMouseState()
         mouse_screen_point = wx.Point(mouse_position.x, mouse_position.y)
