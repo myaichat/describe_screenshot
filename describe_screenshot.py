@@ -10,7 +10,7 @@ ctypes.windll.shcore.SetProcessDpiAwareness(2)
 from include.Controls import MonitorSelectionDialog, ScreenshotOverlay,  ThumbnailScrollPanel, ThumbnailToggleButton
 
 import sys
-sys.setrecursionlimit(200)
+#sys.setrecursionlimit(200)
 
 import  openai
 import base64
@@ -127,17 +127,14 @@ class WebViewPanel(wx.Panel):
         self.is_collapsed = False
         self.image_data = None
         self.request_counter = 0  # Add a counter for request IDs
-        self.processing = False   # Add a flag to track processing state
+        self.processing = False  # Add a flag to track processing state
         self.auto_scroll = True
-    
-              
-        
+
         # Create a splitter window
         self.splitter = wx.SplitterWindow(self)
 
         # Create the WebView as the top pane
         self.webview = wx.html2.WebView.New(self.splitter)
-        #self.webview.SetPage("<html><body></body></html>", "")
 
         # Bind mouse enter/leave events to the WebView
         self.webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
@@ -155,7 +152,27 @@ class WebViewPanel(wx.Panel):
         # Add the button sizer for vertical arrangement
         button_sizer = wx.BoxSizer(wx.VERTICAL)
 
-        # Add the "Ask Model" button
+        # Add spacer at the top
+        #button_sizer.AddStretchSpacer(1)
+
+        # Add the collapse/expand button at the very top
+        self.collapse_button = wx.Button(self.button_panel, label="Collapse")
+        self.collapse_button.Bind(wx.EVT_BUTTON, self.on_collapse_button_click)
+        button_sizer.Add(self.collapse_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+
+        # Add another spacer
+        button_sizer.AddStretchSpacer(1)
+
+        # Add the "Auto-Scroll" toggle button in the middle
+        self.auto_scroll_button = wx.ToggleButton(self.button_panel, label="Auto-Scroll: ON")
+        self.auto_scroll_button.SetValue(True)  # Default: ON
+        self.auto_scroll_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_auto_scroll)
+        button_sizer.Add(self.auto_scroll_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+
+        # Add another spacer
+        button_sizer.AddStretchSpacer(1)
+
+        # Add the "Ask Model" button at the very bottom
         label = "Ask Model"
         text_width, text_height = self.button_panel.GetTextExtent(label)  # Get the label dimensions
         padding = 20  # Add padding to ensure square shape
@@ -166,20 +183,10 @@ class WebViewPanel(wx.Panel):
         self.ask_model_button.Bind(wx.EVT_BUTTON, self.on_ask_model_button_click)
         button_sizer.Add(self.ask_model_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
-        if 1:
-            self.auto_scroll_button = wx.ToggleButton(self.button_panel, label="Auto-Scroll: ON")
-            self.auto_scroll_button.SetValue(True)  # Default: ON
-            self.auto_scroll_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_auto_scroll)
-            button_sizer.Add(self.auto_scroll_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
-
-
-        # Add the collapse/expand button
-        self.collapse_button = wx.Button(self.button_panel, label="Collapse")
-        self.collapse_button.Bind(wx.EVT_BUTTON, self.on_collapse_button_click)
-        button_sizer.Add(self.collapse_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
-
-        button_panel_sizer.Add(button_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        # Add the button sizer to the button panel
+        button_panel_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
         self.button_panel.SetSizer(button_panel_sizer)
 
         # Bind mouse events to the button panel
@@ -409,9 +416,7 @@ class WebViewPanel(wx.Panel):
 
 
     def on_collapse_button_click(self, event):
-        if  self.processing:
-            print("on_mouse_leave_panel disabled due to current state.")
-            return        
+       
         print ("on_collapse_button_click", self.is_collapsed, self.processing)  
         """Toggle collapsing or expanding the button panel."""
         if self.is_collapsed:
@@ -431,6 +436,9 @@ class WebViewPanel(wx.Panel):
     def on_mouse_enter_webview(self, event):
         """Handle mouse entering the WebView."""
         print("Mouse entered WebView.", self.is_collapsed)
+        if  self.processing:
+            print("on_mouse_enter_webview disabled due to current state.")
+            return  
         if not self.is_collapsed:
             self.on_collapse_button_click(None)  # Expand WebView
         event.Skip()
@@ -443,6 +451,9 @@ class WebViewPanel(wx.Panel):
     def on_mouse_enter_button_panel(self, event):
         """Handle mouse entering the bottom button panel."""
         print("Mouse entered Bottom Panel.", self.is_collapsed)
+        if  self.processing:
+            print("on_mouse_enter_button_panel disabled due to current state.")
+            return
         if self.is_collapsed:
             self.on_collapse_button_click(None)  # Collapse WebView and expand Bottom Panel
         event.Skip()
