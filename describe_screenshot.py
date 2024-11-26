@@ -16,28 +16,34 @@ import  openai
 import base64
 import io 
 
-MODEL='gpt-4o-mini'
+#MODEL='gpt-4o-mini'
+client=openai.OpenAI()
+conversation_history=[]
 
 
 
-
-def describe_screenshot(prompt, model, image_data, append_callback=None, history=False):
-    #global conversation_history, client
-    client=openai.OpenAI()
-    conversation_history=[]
-    assert image_data, "Image data is required."
+def describe_screenshot(prompt, model, image_data, append_callback=None, history=False, mock=False,request_id=1):
+    global conversation_history, client
+    print ('>>>>>>>>>>>>>', prompt, model, history, mock,request_id)
 
     try:
         ch = conversation_history if history else []
-
-        ch.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
-            ]
-        })
-        if 1:
+        if request_id==1:
+            assert request_id==1
+            assert image_data, "Image data is required when HISTORY:OFF."
+            if image_data:
+                ch.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
+                    ]
+                })
+        else: 
+            #history=True
+            assert history, "Request ID is only used when HISTORY:ON."
+            ch.append({"role": "user", "content": prompt})   
+        if mock:
             # Simulated response for debugging purposes
             test_response = r"""
 RecursionError: maximum recursion depth exceeded
@@ -113,8 +119,9 @@ on_collapse_button_click False
         raise
 
     finally:
-        client.close()
+        #client.close()
         #wx.CallAfter(self.webview_panel.ask_model_button.Enable)
+        pass
 
 class ModelRadioBox(wx.Panel):
     def __init__(self, parent, model_names, default_selection=0):
@@ -222,25 +229,36 @@ class WebViewPanel(wx.Panel):
         #button_sizer.AddStretchSpacer(1)
 
         # Add the collapse/expand button at the very top
-        self.collapse_button = wx.Button(self.button_panel, label="Collapse")
-        self.collapse_button.Bind(wx.EVT_BUTTON, self.on_collapse_button_click)
-        button_sizer.Add(self.collapse_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        if 1:
+            top_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            self.collapse_button = wx.Button(self.button_panel, label="Collapse")
+            self.collapse_button.Bind(wx.EVT_BUTTON, self.on_collapse_button_click)
+            top_sizer.Add(self.collapse_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+
+            # Add the "Auto-Scroll" toggle button in the middle
+            self.auto_scroll_button = wx.ToggleButton(self.button_panel, label="Auto-Scroll: ON")
+            self.auto_scroll_button.SetValue(True)  # Default: ON
+            self.auto_scroll_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_auto_scroll)
+            top_sizer.Add(self.auto_scroll_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        button_sizer.Add(top_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+
+        
+        
         
 
         self.notebook = ModelSelectionNotebook(self.button_panel)
-        button_sizer.Add(self.notebook, 0, wx.EXPAND | wx.ALL, 5)   
+        button_sizer.Add(self.notebook, 0, wx.EXPAND | wx.ALL, 5)  
+
+        if 1:
+            self.history_button = wx.ToggleButton(self.button_panel, label="History: ON")
+            self.history_button.SetValue(True)  # Default: ON
+            self.history_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_history)
+            button_sizer.Add(self.history_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)             
 
         # Add another spacer
         button_sizer.AddStretchSpacer(1)
 
-        # Add the "Auto-Scroll" toggle button in the middle
-        self.auto_scroll_button = wx.ToggleButton(self.button_panel, label="Auto-Scroll: ON")
-        self.auto_scroll_button.SetValue(True)  # Default: ON
-        self.auto_scroll_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_auto_scroll)
-        button_sizer.Add(self.auto_scroll_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
-        # Add another spacer
-        button_sizer.AddStretchSpacer(1)
 
         # Add the "Ask Model" button at the very bottom
         label = "Ask Model"
@@ -251,7 +269,7 @@ class WebViewPanel(wx.Panel):
         self.ask_model_button = wx.Button(self.button_panel, label=label, size=(button_size, button_size))
         self.ask_model_button.SetBackgroundColour(wx.Colour(144, 238, 144))  # Light green color
         self.ask_model_button.Bind(wx.EVT_BUTTON, self.on_ask_model_button_click)
-        button_sizer.Add(self.ask_model_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        button_sizer.Add(self.ask_model_button, 0, wx.EXPAND  | wx.ALL, 5)
 
 
         # Add the button sizer to the button panel
@@ -279,7 +297,15 @@ class WebViewPanel(wx.Panel):
         # Initialize content and collapse state
         wx.CallAfter(self.on_collapse_button_click, None)
         self.set_initial_content()
-    
+    def toggle_history(self, event):
+        if self.history_button.GetValue():
+            self.history_button.SetLabel("History: ON")
+            #self.image_data=None
+
+        else:
+            self.history_button.SetLabel("History: OFF")  
+            self.request_counter = 0  
+            
 
     def toggle_auto_scroll(self, event):
         """Toggle auto-scroll on or off."""
@@ -346,22 +372,30 @@ class WebViewPanel(wx.Panel):
     def _stream_model_response(self, user_message, request_id):
         """Handles model response streaming with improved error handling."""
         try:
-            if not self.image_data:
-                wx.CallAfter(wx.MessageBox, "No image data found to send to the model.", "Error", wx.OK | wx.ICON_ERROR)
-                return
+            history=self.history_button.GetValue()
+            if not history:
+                if not self.image_data:
+                    print("WARNING: No image data found to send to the model.")
+                    wx.MessageBox("No image data found to send to the model.", "Error", wx.OK | wx.ICON_ERROR)
+                    return  
+                
 
             def append_callback(content, is_streaming):
                 if content:  # Only append if there's actual content
                     #wx.CallAfter(self._append_response, request_id, content, is_streaming)
                     self._append_response(request_id, content, is_streaming)
             model=self.notebook.get_selected_models()['OpenAI']
-            describe_screenshot(user_message, model, self.image_data, append_callback=append_callback)
+            
+            describe_screenshot(user_message, model, self.image_data, append_callback=append_callback, history=history, mock=False, request_id=request_id)  
+            #if history:
+            #    self.image_data=None
 
         except Exception as e:
             print(f"Error in _stream_model_response for request {request_id}: {e}")
             error_msg = f"\n\nError: {str(e)}"
             wx.CallAfter(self._append_response, request_id, error_msg, False)
-            wx.CallAfter(wx.MessageBox, f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            #wx.CallAfter(wx.MessageBox, f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            raise e
 
         finally:
             current_thread = threading.current_thread()
