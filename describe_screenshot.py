@@ -10,7 +10,7 @@ ctypes.windll.shcore.SetProcessDpiAwareness(2)
 from include.Controls import MonitorSelectionDialog, ScreenshotOverlay,  ThumbnailScrollPanel, ThumbnailToggleButton
 
 import sys
-#sys.setrecursionlimit(200)
+sys.setrecursionlimit(10000)
 
 import  openai
 import base64
@@ -24,7 +24,7 @@ conversation_history=[]
 
 def describe_screenshot(prompt, model, image_data, append_callback=None, history=False, mock=False,request_id=1):
     global conversation_history, client
-    print ('>>>>>>>>>>>>>', prompt, model, history, mock,request_id)
+    
 
     try:
         ch = conversation_history if history else []
@@ -220,6 +220,8 @@ class WebViewPanel(wx.Panel):
         # Add the multiline text control
         self.prompt_text_ctrl = wx.TextCtrl(self.button_panel, style=wx.TE_MULTILINE)
         self.prompt_text_ctrl.SetValue("Describe this image")
+        self.prompt_text_ctrl.Bind(wx.EVT_CHAR_HOOK, self.on_text_ctrl_key)
+
         button_panel_sizer.Add(self.prompt_text_ctrl, 1, wx.EXPAND | wx.ALL, 5)
 
         # Add the button sizer for vertical arrangement
@@ -297,6 +299,32 @@ class WebViewPanel(wx.Panel):
         # Initialize content and collapse state
         wx.CallAfter(self.on_collapse_button_click, None)
         self.set_initial_content()
+    def on_text_ctrl_key(self, event):
+        """Handle keyboard events in the prompt text control."""
+        # Check for Alt+Enter
+        key_code = event.GetKeyCode()
+        
+        # Check for Alt+Enter
+        if event.AltDown() and key_code == wx.WXK_RETURN:
+            if self.ask_model_button.IsEnabled():
+                self.on_ask_model_button_click(None)
+        # Check for Ctrl+A
+        elif event.ControlDown() and key_code == ord('A'):
+            # Reset button state and processing flag
+            self.reset_state()
+
+
+        else:
+            event.Skip()  # Process other keys normally
+    def reset_state(self):
+        """Safely reset the processing state and button."""
+        self.processing = False
+        self.ask_model_button.Enable()
+        self.active_threads = [t for t in self.active_threads if t.is_alive()]
+        # Update status
+        parent_frame = self.GetParent().GetParent()
+        if hasattr(parent_frame, 'status_bar'):
+            parent_frame.status_bar.SetStatusText("Processing state reset")
     def toggle_history(self, event):
         if self.history_button.GetValue():
             self.history_button.SetLabel("History: ON")
@@ -304,8 +332,18 @@ class WebViewPanel(wx.Panel):
 
         else:
             self.history_button.SetLabel("History: OFF")  
+            self.reset_webview()
             self.request_counter = 0  
-            
+    def reset_webview(self):
+        """Clear WebView content and re-add the thumbnail."""
+        # Reset WebView content
+        self.set_initial_content()  # Reload the initial content
+
+        if self.image_data:
+            # Re-add the thumbnail to the WebView
+            self.add_image_as_log_entry(self.image_data)
+        else:
+            print("No image data available to re-add as thumbnail.")            
 
     def toggle_auto_scroll(self, event):
         """Toggle auto-scroll on or off."""
@@ -313,7 +351,7 @@ class WebViewPanel(wx.Panel):
         self.auto_scroll_button.SetLabel(f"Auto-Scroll: {'ON' if self.auto_scroll else 'OFF'}")
 
 
-    def on_ask_model_button_click(self, event):
+    def _on_ask_model_button_click(self, event):
         """
         Handles the 'Ask Model' button click with improved thread management.
         """
@@ -369,7 +407,7 @@ class WebViewPanel(wx.Panel):
                     
                 wx.CallLater(1000, reset_state)
 
-    def _stream_model_response(self, user_message, request_id):
+    def __stream_model_response(self, user_message, request_id):
         """Handles model response streaming with improved error handling."""
         try:
             history=self.history_button.GetValue()
@@ -456,7 +494,144 @@ class WebViewPanel(wx.Panel):
         except Exception as e:
             print(f"Error creating log entry: {e}")
 
+
     def _append_response(self, request_id, content, is_streaming):
+        """Safely append response content with code formatting."""
+        # Prevent recursion by checking content
+        if not content:
+            return
+
+        try:
+            # Basic content validation
+            if "<script>" in content:
+                raise Exception("Invalid content detected!")
+
+            # Prepare the content with proper escaping
+            safe_content = (content
+                .replace('\\', '\\\\')
+                .replace("'", "\\'")
+                .replace('"', '\\"')
+                .replace('\n', '\\n')
+                .replace('\t', '\\t'))
+
+            # Create the JavaScript code as a single string instead of using format
+            js_code = (
+                'try {'
+                '   var responseRow = document.getElementById("response-' + str(request_id) + '");'
+                '   if (responseRow) {'
+                '       var responseDiv = responseRow.querySelector(".model-response");'
+                '       if (responseDiv) {'
+                '           var content = "' + safe_content + '";'
+                '           content = content.replace(/\\\\n/g, "\\n").replace(/\\\\t/g, "\\t");'
+                '           responseDiv.appendChild(document.createTextNode(content));'
+                '           if (!' + str(is_streaming).lower() + ') {'
+                '               formatCodeBlocks(responseDiv);'
+                '           }'
+                '       }'
+                '       if (' + str(self.auto_scroll).lower() + ') {'
+                '           responseRow.scrollIntoView({behavior: "smooth", block: "end"});'
+                '       }'
+                '   }'
+                '} catch (error) {'
+                '   console.error("Error in _append_response:", error);'
+                '}'
+            )
+
+            # Execute the JavaScript code directly
+            self.webview.RunScript(js_code)
+
+        except Exception as e:
+            print(f"Error appending response: {e}")
+            # Avoid recursive error handling
+            if not isinstance(e, RecursionError):
+                wx.CallAfter(
+                    wx.MessageBox,
+                    f"Error appending response: {str(e)}",
+                    "Error",
+                    wx.OK | wx.ICON_ERROR
+                )
+
+    def on_ask_model_button_click(self, event):
+        """Handle asking the model with improved error handling."""
+        if self.processing:
+            print("Already processing a request")
+            return
+
+        try:
+            self.processing = True
+            self.ask_model_button.Disable()
+
+            user_message = self.prompt_text_ctrl.GetValue().strip()
+            if not user_message:
+                wx.MessageBox("Please enter a prompt before asking the model.", 
+                            "Input Required", 
+                            wx.OK | wx.ICON_WARNING)
+                return
+
+            self.request_counter += 1
+            request_id = self.request_counter
+
+            # Create log entry in the main thread
+            self._create_log_entry(user_message, request_id)
+
+            # Start response thread
+            thread = threading.Thread(
+                target=self._stream_model_response,
+                args=(user_message, request_id),
+                daemon=True,
+                name=f"ModelThread-{request_id}"
+            )
+            
+            self.active_threads = [t for t in self.active_threads if t.is_alive()]
+            self.active_threads.append(thread)
+            thread.start()
+
+        except Exception as e:
+            print(f"Error in ask_model_button_click: {e}")
+            self.processing = False
+            self.ask_model_button.Enable()
+            wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+
+    def _stream_model_response(self, user_message, request_id):
+        """Handle streaming responses with improved error handling."""
+        try:
+            history = self.history_button.GetValue()
+            if not history and not self.image_data:
+                wx.CallAfter(wx.MessageBox,
+                            "No image data found to send to the model.",
+                            "Error",
+                            wx.OK | wx.ICON_ERROR)
+                return
+
+            def append_callback(content, is_streaming):
+                if content:
+                    wx.CallAfter(self._append_response, request_id, content, is_streaming)
+
+            model = self.notebook.get_selected_models()['OpenAI']
+            describe_screenshot(
+                user_message, 
+                model, 
+                self.image_data, 
+                append_callback=append_callback,
+                history=history,
+                mock=False,
+                request_id=request_id
+            )
+
+        except Exception as e:
+            print(f"Error in _stream_model_response for request {request_id}: {e}")
+            wx.CallAfter(self._append_response,
+                        request_id,
+                        f"\n\nError: {str(e)}",
+                        False)
+        finally:
+            current_thread = threading.current_thread()
+            if current_thread in self.active_threads:
+                wx.CallAfter(self._remove_thread, current_thread)
+                wx.CallAfter(self.ask_model_button.Enable)
+                self.processing = False
+
+    def __append_response(self, request_id, content, is_streaming):
         """Safely append response content with code formatting."""
         try:
             if not content:
@@ -1164,6 +1339,13 @@ class CoordinatesPanel(wx.Panel):
         finally:
             self.show_frame(main_frame)  # Show the main frame again
 
+        webview_panel = self.webview_panel
+        assert webview_panel is not None, "WebViewPanel is not available!"
+        assert webview_panel.webview is not None, "WebView is not available!"
+        assert webview_panel.image_data is not None , "Image data is not available!"
+        #self.trigger_image_description(pil_image, thumbnail, coordinates)
+        wx.CallAfter(self.webview_panel.on_ask_model_button_click, None)
+
 
     def bitmap_to_base64(self, bitmap):
         """Convert a wx.Bitmap to a base64-encoded PNG image."""
@@ -1566,8 +1748,7 @@ class ScreenshotApp(wx.App):
             self.coordinates_frame.panel.on_coordinates_selected(pil_image, thumbnail, coordinates)
 
 
-
-
+        
 
 
 
