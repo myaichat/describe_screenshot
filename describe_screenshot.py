@@ -250,13 +250,19 @@ class WebViewPanel(wx.Panel):
 
         self.notebook = ModelSelectionNotebook(self.button_panel)
         button_sizer.Add(self.notebook, 0, wx.EXPAND | wx.ALL, 5)  
-
+        toggle_sizer = wx.BoxSizer(wx.HORIZONTAL)
         if 1:
             self.history_button = wx.ToggleButton(self.button_panel, label="History: ON")
             self.history_button.SetValue(True)  # Default: ON
             self.history_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_history)
-            button_sizer.Add(self.history_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)             
+            toggle_sizer.Add(self.history_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)     
 
+        if 1:
+            self.mock_button = wx.ToggleButton(self.button_panel, label="Mock: ON")
+            self.mock_button.SetValue(True)  # Default: ON
+            self.mock_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_mock)
+            toggle_sizer.Add(self.mock_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)                     
+        button_sizer.Add(toggle_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)  
         # Add another spacer
         button_sizer.AddStretchSpacer(1)
 
@@ -325,6 +331,16 @@ class WebViewPanel(wx.Panel):
         parent_frame = self.GetParent().GetParent()
         if hasattr(parent_frame, 'status_bar'):
             parent_frame.status_bar.SetStatusText("Processing state reset")
+    def toggle_mock(self, event):
+        if self.mock_button.GetValue():
+            self.mock_button.SetLabel("Mock: ON")
+            #self.image_data=None
+
+        else:
+            self.mock_button.SetLabel("Mock: OFF")  
+            #self.reset_webview()
+            #self.request_counter = 0  
+                        
     def toggle_history(self, event):
         if self.history_button.GetValue():
             self.history_button.SetLabel("History: ON")
@@ -608,13 +624,14 @@ class WebViewPanel(wx.Panel):
                     wx.CallAfter(self._append_response, request_id, content, is_streaming)
 
             model = self.notebook.get_selected_models()['OpenAI']
+            mock=self.mock_button.GetValue()
             describe_screenshot(
                 user_message, 
                 model, 
                 self.image_data, 
                 append_callback=append_callback,
                 history=history,
-                mock=False,
+                mock=mock ,
                 request_id=request_id
             )
 
@@ -1090,12 +1107,12 @@ class CoordinatesPanel(wx.Panel):
             # Move sash to allocate more space to WebView
             new_position = 150  # Minimal space for notebook
             button.SetLabel("Hide Webview")
-            self.GetParent().status_bar.SetStatusText("WebView panel shown.")
+            self.update_status(0,"WebView panel shown.")
         else:
             # Move sash to allocate more space to the notebook
             new_position = total_width - 150  # Minimal space for WebView
             button.SetLabel("Show Webview")
-            self.GetParent().status_bar.SetStatusText("WebView panel minimized.")
+            self.update_status(0,"WebView panel minimized.")
 
         # Adjust the sash position
         self.splitter.SetSashPosition(new_position, redraw=True)
@@ -1128,7 +1145,7 @@ class CoordinatesPanel(wx.Panel):
             selected_canvas.SetFocus()  # Optional: Set focus to the canvas
 
             # Update status bar
-            self.GetParent().status_bar.SetStatusText(f"Scrolled to coordinate {selected_index + 1}")
+            self.update_status(0,f"Scrolled to coordinate {selected_index + 1}")
 
 
 
@@ -1212,7 +1229,7 @@ class CoordinatesPanel(wx.Panel):
         self.coordinates_list[new_label] = self.current_coordinates
 
         # Update the status bar
-        self.GetParent().status_bar.SetStatusText(f"Added and toggled new coordinates as '{new_label}'")
+        self.update_status(0,f"Added and toggled new coordinates as '{new_label}'")
         wx.CallAfter(self.take_single_screenshot)
 
 
@@ -1246,6 +1263,7 @@ class CoordinatesPanel(wx.Panel):
         self.group_list.SetSelection(self.group_list.GetCount() - 1)
 
     def take_single_screenshot(self):
+        
         """Take screenshots for all toggled thumbnail buttons and display them in a single scrollable panel."""
         # Clear the coordinates list box for the new group
         main_frame = self.GetParent()  # Reference to the main frame
@@ -1332,7 +1350,7 @@ class CoordinatesPanel(wx.Panel):
             self.notebook.SetSelection(self.notebook.GetPageCount() - 1)
 
             # Update the status bar
-            self.GetParent().status_bar.SetStatusText(
+            self.update_status(0,
                 f"Captured {len(toggled_buttons)} screenshots in group '{group_name}'."
             )
 
@@ -1399,13 +1417,13 @@ class CoordinatesPanel(wx.Panel):
         if self.current_group:
             screenshots = len(self.screenshot_groups.get(self.current_group, []))
             # Update the status bar with the group completion message
-            self.GetParent().status_bar.SetStatusText(
+            self.update_status(0,
                 f"Group '{self.current_group}' finalized with {screenshots} screenshots!"
             )
             self.current_group = None
         else:
             # Update the status bar with an error message
-            self.GetParent().status_bar.SetStatusText("No group is currently active.")
+            self.update_status(0,"No group is currently active.")
 
 
     def take_screenshot(self, coordinates, return_bitmap=False):
@@ -1468,10 +1486,11 @@ class CoordinatesPanel(wx.Panel):
 
             #wx.MessageBox(f"All screenshots in group '{selected_group}' saved to {group_dir}", "Success", wx.OK | wx.ICON_INFORMATION)
             # Update the status bar
-            self.GetParent().status_bar.SetStatusText(f"All screenshots in group '{selected_group}' saved to {group_dir}")
+            #self.GetParent().status_bar.SetStatusText(f"All screenshots in group '{selected_group}' saved to {group_dir}")
+            self.update_status(0, "Screenshots saved successfully!")
         else:
             #wx.MessageBox("Save operation cancelled.", "Info", wx.OK | wx.ICON_INFORMATION)
-            self.GetParent().status_bar.SetStatusText("Save operation cancelled.")
+            self.update_status(0,"Save operation cancelled.")
 
 
 
@@ -1514,15 +1533,17 @@ class CoordinatesPanel(wx.Panel):
                 self.coordinates_listbox.Append(f"coord_{i}")
 
         # Update the status bar with the selected group
-        self.GetParent().status_bar.SetStatusText(f"Selected group: '{selected_group}'")
+        self.update_status(0,f"Selected group: '{selected_group}'")
 
 
 
     def add_group(self, group_name):
+        
+        self.update_status(2, f"Current Group: {group_name}")        
         """Add a new screenshot group."""
         if group_name in self.screenshot_groups:
             # Avoid duplicate groups
-            self.GetParent().status_bar.SetStatusText(f"Group '{group_name}' already exists.")
+            self.update_status(0,f"Group '{group_name}' already exists.")
             return
 
         # Create a new group and add it to the list
@@ -1531,7 +1552,7 @@ class CoordinatesPanel(wx.Panel):
         self.current_group = group_name
 
         # Update the status bar
-        self.GetParent().status_bar.SetStatusText(f"Started new group: '{group_name}'")
+        self.update_status(0,f"Started new group: '{group_name}'")
 
 
 
@@ -1541,7 +1562,11 @@ class CoordinatesPanel(wx.Panel):
     def open_overlay(self, event):
         self.Hide()
         self.callback()
-
+    def update_status(self, field, message):
+        status_bar=self.GetParent().status_bar
+        """Update a specific field in the status bar."""
+        if 0 <= field < status_bar.GetFieldsCount():
+            status_bar.SetStatusText(message, field)
 
 
 
@@ -1565,8 +1590,12 @@ class CoordinatesFrame(wx.Frame):
         self.Center()
 
         # Add a status bar
-        self.status_bar = self.CreateStatusBar()
+        self.status_bar = self.CreateStatusBar(3)
+        self.status_bar.SetStatusWidths([-2, -1, -1])
         self.status_bar.SetStatusText("Ready")  # Default message
+        self.status_bar.SetStatusText("Ready", 0)  # Default message for field 0
+        self.status_bar.SetStatusText("Monitor: Not Selected", 1)
+        self.status_bar.SetStatusText("No Active Group", 2)        
 
 
 
