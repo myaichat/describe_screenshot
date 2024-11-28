@@ -22,16 +22,17 @@ conversation_history=[]
 
 
 
-def describe_screenshot(prompt, model, image_data, append_callback=None, history=False, mock=False,request_id=1):
+def describe_screenshot(prompt, model, image_data, append_callback=None, history=False, mock=False, request_id=1):
     global conversation_history, client
     
-
     try:
         ch = conversation_history if history else []
-        if request_id==1:
-            assert request_id==1
-            assert image_data, "Image data is required when HISTORY:OFF."
-            if image_data:
+      
+        if 1:
+
+            if request_id == 1:
+                if not image_data:
+                    raise AssertionError("Image data is required when HISTORY:OFF.")
                 ch.append({
                     "role": "user",
                     "content": [
@@ -39,10 +40,11 @@ def describe_screenshot(prompt, model, image_data, append_callback=None, history
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
                     ]
                 })
-        else: 
-            #history=True
-            assert history, "Request ID is only used when HISTORY:ON."
-            ch.append({"role": "user", "content": prompt})   
+            else:
+                # For subsequent requests, just append the prompt
+                ch.append({"role": "user", "content": prompt})
+
+
         if mock:
             # Simulated response for debugging purposes
             test_response = r"""
@@ -54,41 +56,16 @@ RecursionError: maximum recursion depth exceeded
 Initializing App
 (myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
 (myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
-Initializing App
-Selected Monitor: 1
-Opening overlay...
-on_collapse_button_click False
-Showing CoordinatesFrame 222
-Mouse entered Bottom Panel. True
-on_collapse_button_click True
-Mouse entered Bottom Panel. False
-Mouse entered Bottom Panel. False
-[1125/091343.384:ERROR:window_impl.cc(121)] Failed to unregister class Chrome_WidgetWin_0. Error = 1411
-(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
-(myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
-Initializing App
-Selected Monitor: 1
-Opening overlay...
-on_collapse_button_click False
-Showing CoordinatesFrame 222
-Mouse entered Bottom Panel. True
-on_collapse_button_click True
-Mouse entered Bottom Panel. False
-Mouse entered Bottom Panel. False
-Mouse entered Bottom Panel. False
-Thread ModelThread-1 removed. Active threads: 0
-Mouse left Bottom Panel. False
-on_collapse_button_click False
+
 """         
             for line in test_response.splitlines():
                 for word in line.split():
                     if append_callback:
                         wx.CallAfter(append_callback, f'{word} ', is_streaming=True)
-                    time.sleep(0.05)  # Simulating delay for streaming responses
+                    time.sleep(0.02)
                 wx.CallAfter(append_callback, 'new line \n', is_streaming=True)
-                print (len(line))
-            
         else:
+            # Real API call
             response = client.chat.completions.create(
                 model=model,
                 messages=ch,
@@ -99,23 +76,19 @@ on_collapse_button_click False
             for chunk in response:
                 if hasattr(chunk.choices[0].delta, 'content'):
                     content = chunk.choices[0].delta.content
-                    print (content, end="")
                     if content:
                         assistant_response += content
                         if append_callback:
-                            wx.CallAfter(append_callback, content, is_streaming=True)   
-                            #append_callback(content, is_streaming=True)
-            #return
-            # Finalize the response
+                            wx.CallAfter(append_callback, content, is_streaming=True)
+
+            # Always append the assistant's response to conversation history when in history mode
             if history:
                 ch.append({"role": "assistant", "content": assistant_response})
-
-
 
     except Exception as e:
         print(f"Error in describe_screenshot: {e}")
         if append_callback:
-            append_callback(f"Error: {str(e)}", is_streaming=False)        
+            append_callback(f"Error: {str(e)}", is_streaming=False)
         raise
 
     finally:
@@ -317,20 +290,54 @@ class WebViewPanel(wx.Panel):
         # Check for Ctrl+A
         elif event.ControlDown() and key_code == ord('A'):
             # Reset button state and processing flag
-            self.reset_state()
+            #self.reset_state()
+            wx.CallAfter(self.reset_state)
 
 
         else:
             event.Skip()  # Process other keys normally
     def reset_state(self):
-        """Safely reset the processing state and button."""
+        """Safely reset the processing state and clear all content."""
+        print("Resetting state")
+        
+        # Reset processing flags and buttons
         self.processing = False
         self.ask_model_button.Enable()
         self.active_threads = [t for t in self.active_threads if t.is_alive()]
+        
+        # Reset conversation history and data
+        global conversation_history
+        conversation_history = []
+        #self.image_data = None
+        self.request_counter = 0
+        #current_image_data = self.image_data
+        
+        # Destroy and recreate WebView
+        self.webview.Destroy()
+        self.webview = wx.html2.WebView.New(self.splitter)
+        self.webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
+        self.webview.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_webview)
+        
+        # Replace the old WebView in the splitter
+        self.splitter.ReplaceWindow(self.splitter.GetWindow1(), self.webview)
+        
+        # Reset content
+        self.set_initial_content()
+        
+        def on_loaded(evt):
+            if hasattr(self, 'image_data') and self.image_data:
+                self.add_image_as_log_entry(self.image_data)
+        
+        self.webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, on_loaded)
+        
+        # Clear the prompt text
+        self.prompt_text_ctrl.SetValue("Describe this image")
+        
         # Update status
         parent_frame = self.GetParent().GetParent()
         if hasattr(parent_frame, 'status_bar'):
-            parent_frame.status_bar.SetStatusText("Processing state reset")
+            parent_frame.panel.update_status(0, "Processing state and content reset")
+
     def toggle_mock(self, event):
         if self.mock_button.GetValue():
             self.mock_button.SetLabel("Mock: ON")
@@ -567,7 +574,7 @@ class WebViewPanel(wx.Panel):
                     wx.OK | wx.ICON_ERROR
                 )
 
-    def on_ask_model_button_click(self, event):
+    def __on_ask_model_button_click(self, event):
         """Handle asking the model with improved error handling."""
         if self.processing:
             print("Already processing a request")
@@ -604,6 +611,42 @@ class WebViewPanel(wx.Panel):
 
         except Exception as e:
             print(f"Error in ask_model_button_click: {e}")
+            self.processing = False
+            self.ask_model_button.Enable()
+            wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            
+    def on_ask_model_button_click(self, event):
+        if self.processing:
+            return
+
+        try:
+            self.processing = True
+            self.ask_model_button.Disable()
+            user_message = self.prompt_text_ctrl.GetValue().strip()
+            
+            if not user_message:
+                wx.MessageBox("Please enter a prompt before asking the model.", "Input Required", wx.OK | wx.ICON_WARNING)
+                return
+
+            # Increment request counter BEFORE creating log entry
+            self.request_counter += 1
+            request_id = self.request_counter
+
+            # Create log entry and start response thread
+            self._create_log_entry(user_message, request_id)
+            thread = threading.Thread(
+                target=self._stream_model_response,
+                args=(user_message, request_id),
+                daemon=True,
+                name=f"ModelThread-{request_id}"
+            )
+            
+            self.active_threads = [t for t in self.active_threads if t.is_alive()]
+            self.active_threads.append(thread)
+            thread.start()
+
+        except Exception as e:
+            print(f"Error: {e}")
             self.processing = False
             self.ask_model_button.Enable()
             wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
@@ -1407,7 +1450,7 @@ class CoordinatesPanel(wx.Panel):
 
         # Update the status bar
         parent_frame = self.GetParent()
-        parent_frame.status_bar.SetStatusText(
+        parent_frame.panel.update_status(0,
             f"Added screenshot to '{self.current_group}'. Total: {len(self.screenshot_groups[self.current_group])}"
         )
 
@@ -1677,7 +1720,7 @@ class ScreenshotApp(wx.App):
             self.coordinates_frame.panel.add_screenshot_tab(bitmap)
 
             # Update the status bar
-            self.coordinates_frame.status_bar.SetStatusText(
+            self.coordinates_frame.panel.update_status(0,
                 f"Added screenshot to '{group_name}'. Total: {len(self.coordinates_frame.panel.screenshot_groups[group_name])}"
             )
         else:
@@ -1719,7 +1762,7 @@ class ScreenshotApp(wx.App):
         self.coordinates_frame.panel.add_thumbnail_button(thumbnail, label="Full Screenshot")
 
         # Update the status bar or perform additional actions if needed
-        self.coordinates_frame.status_bar.SetStatusText("Full screenshot captured.")
+        self.coordinates_frame.panel.update_status(0,"Full screenshot captured.")
 
 
     def show_monitor_selection_dialog(self):
