@@ -20,7 +20,7 @@ import io
 client=openai.OpenAI()
 conversation_history=[]
 
-
+is_mock=True
 
 def describe_screenshot(prompt, model, image_data, append_callback=None, history=False, mock=False, request_id=1):
     global conversation_history, client
@@ -32,14 +32,15 @@ def describe_screenshot(prompt, model, image_data, append_callback=None, history
 
             if request_id == 1:
                 if not image_data:
-                    raise AssertionError("Image data is required when HISTORY:OFF.")
-                ch.append({
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
-                    ]
-                })
+                    ch.append({"role": "user", "content": prompt})
+                else:
+                    ch.append({
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
+                        ]
+                    })
             else:
                 # For subsequent requests, just append the prompt
                 ch.append({"role": "user", "content": prompt})
@@ -47,7 +48,7 @@ def describe_screenshot(prompt, model, image_data, append_callback=None, history
 
         if mock:
             # Simulated response for debugging purposes
-            test_response = r"""
+            assistant_response = r"""
 RecursionError: maximum recursion depth exceeded
 (myenv) PS C:\Users\alex_\aichat\describe_screenshot>
 (myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
@@ -58,7 +59,7 @@ Initializing App
 (myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
 
 """         
-            for line in test_response.splitlines():
+            for line in assistant_response.splitlines():
                 for word in line.split():
                     if append_callback:
                         wx.CallAfter(append_callback, f'{word} ', is_streaming=True)
@@ -82,8 +83,8 @@ Initializing App
                             wx.CallAfter(append_callback, content, is_streaming=True)
 
             # Always append the assistant's response to conversation history when in history mode
-            if history:
-                ch.append({"role": "assistant", "content": assistant_response})
+        if history:
+            ch.append({"role": "assistant", "content": assistant_response})
 
     except Exception as e:
         print(f"Error in describe_screenshot: {e}")
@@ -232,7 +233,7 @@ class WebViewPanel(wx.Panel):
 
         if 1:
             self.mock_button = wx.ToggleButton(self.button_panel, label="Mock: ON")
-            self.mock_button.SetValue(True)  # Default: ON
+            self.mock_button.SetValue(is_mock)  # Default: ON
             self.mock_button.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_mock)
             toggle_sizer.Add(self.mock_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)                     
         button_sizer.Add(toggle_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)  
@@ -305,13 +306,6 @@ class WebViewPanel(wx.Panel):
         self.ask_model_button.Enable()
         self.active_threads = [t for t in self.active_threads if t.is_alive()]
         
-        # Reset conversation history and data
-        global conversation_history
-        conversation_history = []
-        #self.image_data = None
-        self.request_counter = 0
-        #current_image_data = self.image_data
-        
         # Destroy and recreate WebView
         self.webview.Destroy()
         self.webview = wx.html2.WebView.New(self.splitter)
@@ -323,13 +317,40 @@ class WebViewPanel(wx.Panel):
         
         # Reset content
         self.set_initial_content()
-        
+
+        # Set up event handler for when content is loaded
         def on_loaded(evt):
             if hasattr(self, 'image_data') and self.image_data:
-                self.add_image_as_log_entry(self.image_data)
-        
+                js_script = """
+                    (function() {
+                        try {
+                            addSnapshot('%s');
+                        } catch (error) {
+                            console.error('Error adding image:', error);
+                        }
+                    })();
+                """ % self.image_data
+                self.webview.RunScript(js_script)
+
+                # Restore chat history in webview if it exists
+                if 'conversation_history' in globals():
+                    for entry in conversation_history:
+                        if entry['role'] == 'user':
+                            if isinstance(entry['content'], str):
+                                self.add_user_message(entry['content'])
+                            elif isinstance(entry['content'], list):
+                                for item in entry['content']:
+                                    if item['type'] == 'text':
+                                        self.add_user_message(item['text'])
+
+                        elif entry['role'] == 'assistant':
+                            self.add_assistant_message(entry['content'])
+
+
         self.webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, on_loaded)
-        
+
+
+
         # Clear the prompt text
         self.prompt_text_ctrl.SetValue("Describe this image")
         
@@ -337,7 +358,86 @@ class WebViewPanel(wx.Panel):
         parent_frame = self.GetParent().GetParent()
         if hasattr(parent_frame, 'status_bar'):
             parent_frame.panel.update_status(0, "Processing state and content reset")
+        pp(conversation_history)
+    def add_user_message(self, message):
+        """Add a user message to the WebView with proper escaping."""
+        escaped_message = (message.replace('\\', '\\\\')
+                                .replace("'", "\\'")
+                                .replace('"', '\\"')
+                                .replace('\n', '\\n')
+                                .replace('\r', '\\r')
+                                .replace('\t', '\\t'))
+        
+        js_script = f"""
+            (function() {{
+                try {{
+                    var table = document.getElementById('log-container');
+                    if (!table) {{
+                        console.error('Log container not found');
+                        return;
+                    }}
 
+                    var userRow = document.createElement('tr');
+                    userRow.id = 'user-{self.request_counter}';
+                    
+                    var userCell = document.createElement('td');
+                    var userPrompt = document.createElement('div');
+                    userPrompt.className = 'user-prompt';
+                    userPrompt.textContent = `{escaped_message}`;
+                    
+                    userCell.appendChild(userPrompt);
+                    userRow.appendChild(userCell);
+                    table.appendChild(userRow);
+
+                    if ({str(self.auto_scroll).lower()}) {{
+                        table.scrollTop = table.scrollHeight;
+                    }}
+                }} catch (error) {{
+                    console.error('Error adding user message:', error);
+                }}
+            }})();
+        """
+        self.webview.RunScript(js_script)
+
+    def add_assistant_message(self, message):
+        """Add an assistant message to the WebView with proper escaping."""
+        escaped_message = (message.replace('\\', '\\\\')
+                                .replace("'", "\\'")
+                                .replace('"', '\\"')
+                                .replace('\n', '\\n')
+                                .replace('\r', '\\r')
+                                .replace('\t', '\\t'))
+        
+        js_script = f"""
+            (function() {{
+                try {{
+                    var table = document.getElementById('log-container');
+                    if (!table) {{
+                        console.error('Log container not found');
+                        return;
+                    }}
+
+                    var responseRow = document.createElement('tr');
+                    responseRow.id = 'response-{self.request_counter}';
+                    
+                    var responseCell = document.createElement('td');
+                    var responseDiv = document.createElement('div');
+                    responseDiv.className = 'model-response';
+                    responseDiv.textContent = `{escaped_message}`;
+                    
+                    responseCell.appendChild(responseDiv);
+                    responseRow.appendChild(responseCell);
+                    table.appendChild(responseRow);
+
+                    if ({str(self.auto_scroll).lower()}) {{
+                        table.scrollTop = table.scrollHeight;
+                    }}
+                }} catch (error) {{
+                    console.error('Error adding assistant message:', error);
+                }}
+            }})();
+        """
+        self.webview.RunScript(js_script)
     def toggle_mock(self, event):
         if self.mock_button.GetValue():
             self.mock_button.SetLabel("Mock: ON")
@@ -358,6 +458,8 @@ class WebViewPanel(wx.Panel):
             self.reset_webview()
             self.request_counter = 0  
     def reset_webview(self):
+        global conversation_history
+        conversation_history = []
         """Clear WebView content and re-add the thumbnail."""
         # Reset WebView content
         self.set_initial_content()  # Reload the initial content
