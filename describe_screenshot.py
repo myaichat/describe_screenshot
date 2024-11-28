@@ -20,7 +20,7 @@ import io
 client=openai.OpenAI()
 conversation_history=[]
 
-is_mock=True
+is_mock=False
 
 def describe_screenshot(prompt, model, image_data, append_callback=None, history=False, mock=False, request_id=1):
     global conversation_history, client
@@ -402,11 +402,11 @@ class WebViewPanel(wx.Panel):
     def add_assistant_message(self, message):
         """Add an assistant message to the WebView with proper escaping."""
         escaped_message = (message.replace('\\', '\\\\')
-                                .replace("'", "\\'")
-                                .replace('"', '\\"')
-                                .replace('\n', '\\n')
-                                .replace('\r', '\\r')
-                                .replace('\t', '\\t'))
+                                .replace("'", r"\'")
+                                .replace('"', r'\"')
+                                .replace('\n', r'\n')
+                                .replace('\r', r'\r')
+                                .replace('\t', r'\t'))
         
         js_script = f"""
             (function() {{
@@ -423,7 +423,7 @@ class WebViewPanel(wx.Panel):
                     var responseCell = document.createElement('td');
                     var responseDiv = document.createElement('div');
                     responseDiv.className = 'model-response';
-                    responseDiv.textContent = `{escaped_message}`;
+                    responseDiv.textContent = "{escaped_message}";
                     
                     responseCell.appendChild(responseDiv);
                     responseRow.appendChild(responseCell);
@@ -621,34 +621,29 @@ class WebViewPanel(wx.Panel):
 
 
     def _append_response(self, request_id, content, is_streaming):
-        """Safely append response content with code formatting."""
-        # Prevent recursion by checking content
+        """Safely append response content with proper escaping."""
         if not content:
             return
 
         try:
-            # Basic content validation
             if "<script>" in content:
                 raise Exception("Invalid content detected!")
 
-            # Prepare the content with proper escaping
-            safe_content = (content
+            escaped_content = (content
                 .replace('\\', '\\\\')
-                .replace("'", "\\'")
-                .replace('"', '\\"')
-                .replace('\n', '\\n')
-                .replace('\t', '\\t'))
+                .replace("'", r"\'")
+                .replace('"', r'\"')
+                .replace('\n', r'\n')
+                .replace('\t', r'\t'))
 
-            # Create the JavaScript code as a single string instead of using format
             js_code = (
                 'try {'
                 '   var responseRow = document.getElementById("response-' + str(request_id) + '");'
                 '   if (responseRow) {'
                 '       var responseDiv = responseRow.querySelector(".model-response");'
                 '       if (responseDiv) {'
-                '           var content = "' + safe_content + '";'
-                '           content = content.replace(/\\\\n/g, "\\n").replace(/\\\\t/g, "\\t");'
-                '           responseDiv.appendChild(document.createTextNode(content));'
+                '           var content = "' + escaped_content + '";'
+                '           responseDiv.textContent += content;'
                 '           if (!' + str(is_streaming).lower() + ') {'
                 '               formatCodeBlocks(responseDiv);'
                 '           }'
@@ -661,13 +656,11 @@ class WebViewPanel(wx.Panel):
                 '   console.error("Error in _append_response:", error);'
                 '}'
             )
-
-            # Execute the JavaScript code directly
+            
             self.webview.RunScript(js_code)
 
         except Exception as e:
             print(f"Error appending response: {e}")
-            # Avoid recursive error handling
             if not isinstance(e, RecursionError):
                 wx.CallAfter(
                     wx.MessageBox,
