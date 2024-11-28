@@ -1434,7 +1434,7 @@ class CoordinatesPanel(wx.Panel):
         new_label = f"Coordinates {len(self.thumbnail_scroll_panel.sizer.GetChildren()) + 1}"
 
         # Add thumbnail to the scroll panel
-        toggle_button = self.thumbnail_scroll_panel.add_thumbnail_button(thumbnail, label=new_label)
+        toggle_button = self.thumbnail_scroll_panel.add_thumbnail_button(pil_image, thumbnail, label=new_label)
 
         # Automatically toggle the newly created button
         if toggle_button:

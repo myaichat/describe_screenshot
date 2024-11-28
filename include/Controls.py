@@ -235,22 +235,132 @@ class ScreenshotOverlay(wx.Frame):
 
 
 
-
-
-
-
-
-
-
-
-
 class ThumbnailToggleButton(wx.Panel):
-    """A custom toggle button with a thumbnail and a red border on toggle."""
+    def __init__(self, parent, bitmap, orig_bitmap, label="Thumbnail", *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.parent = parent
+        self.label = label
+        self.enlarged_popup = None  # Popup window for enlargement
+        self.stored_bitmap = orig_bitmap  # Store the bitmap directly
+
+        self.SetBackgroundColour(wx.NullColour)  # Default background color
+
+        # Create a sizer for the panel
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Create the toggle button
+        self.button = wx.ToggleButton(self, label="")
+        self.button.SetBitmap(bitmap)  # Assign bitmap
+        self.button.Bind(wx.EVT_TOGGLEBUTTON, self.on_toggle)
+        self.sizer.Add(self.button, 1, wx.EXPAND)
+
+        self.SetSizer(self.sizer)
+
+        # Bind hover events for enlargement
+        self.button.Bind(wx.EVT_ENTER_WINDOW, self.on_hover)
+        self.button.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
+
+    def on_toggle(self, event=None):
+        """Handle toggle state changes."""
+        if self.button.GetValue():
+            self.SetBackgroundColour(wx.Colour(255, 0, 0))  # Red border
+        else:
+            self.SetBackgroundColour(wx.NullColour)  # Default border
+        self.Refresh()
+        self.Update()
+
+    def on_hover(self, event):
+        """Show an enlarged version of the thumbnail on hover."""
+        if not self.enlarged_popup:
+            if not self.stored_bitmap.IsOk():  # Validate stored bitmap
+                print("Invalid bitmap detected during hover!")
+                return
+
+            # Get mouse position and create popup
+            mouse_x, mouse_y = wx.GetMousePosition()
+            self.enlarged_popup = wx.PopupWindow(self)
+
+            # Enlarge the bitmap for display while fitting 50% of the screen
+            enlarged_bitmap, width, height = self.enlarge_bitmap(self.stored_bitmap, monitor_scale=0.5)
+
+            # Create a panel to hold the enlarged image
+            panel = wx.Panel(self.enlarged_popup)
+            panel.SetSize((width, height))  # Set panel size to match bitmap
+            panel.SetBackgroundColour(wx.Colour(255, 255, 255))  # Set panel background
+
+            # Add the enlarged bitmap to the panel
+            static_bitmap = wx.StaticBitmap(panel, bitmap=enlarged_bitmap)
+            static_bitmap.SetSize((width, height))  # Ensure bitmap fills the panel
+
+            # Ensure the popup is fully visible on the screen
+            screen_width, screen_height = wx.GetDisplaySize()
+            popup_x = min(mouse_x + 10, screen_width - width - 10)
+            popup_y = min(mouse_y + 10, screen_height - height - 10)
+
+            # Configure popup size and position
+            self.enlarged_popup.SetSize((width, height))  # Match popup size to bitmap
+            self.enlarged_popup.SetPosition((popup_x, popup_y))  # Offset popup slightly from pointer
+
+            # Refresh and show the popup
+            self.enlarged_popup.Layout()
+            self.enlarged_popup.Show()
+
+
+
+
+
+
+    def on_leave(self, event):
+        """Hide the enlarged popup when the mouse leaves."""
+        if self.enlarged_popup:
+            self.enlarged_popup.Destroy()
+            self.enlarged_popup = None
+
+    
+    @staticmethod
+    def enlarge_bitmap(bitmap, monitor_scale=0.5):
+        """Helper method to enlarge a wx.Bitmap while maintaining aspect ratio and fitting 50% of the screen."""
+        if not bitmap.IsOk():
+            raise ValueError("Invalid bitmap passed for enlargement.")
+        image = bitmap.ConvertToImage()
+
+        # Get original dimensions
+        img_width, img_height = image.GetWidth(), image.GetHeight()
+
+        # Get 50% of screen dimensions
+        screen_width, screen_height = wx.GetDisplaySize()
+        max_width = int(screen_width * monitor_scale)
+        max_height = int(screen_height * monitor_scale)
+
+        # Scale the image to fit within 50% of the screen
+        width_ratio = max_width / img_width
+        height_ratio = max_height / img_height
+        scale_ratio = min(width_ratio, height_ratio, 1)  # Ensure image is not upscaled
+
+        target_width = int(img_width * scale_ratio)
+        target_height = int(img_height * scale_ratio)
+
+        # Scale the image
+        image = image.Scale(target_width, target_height, wx.IMAGE_QUALITY_HIGH)
+        return wx.Bitmap(image), target_width, target_height
+
+
+
+
+
+
+
+
+class _ThumbnailToggleButton(wx.Panel):
+    """A custom toggle button with a thumbnail, red border on toggle, and hover enlargement."""
     def __init__(self, parent, bitmap, label="Thumbnail", *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
 
-        self.SetBackgroundColour(wx.NullColour)  # Default background color
+        self.parent = parent
         self.label = label
+        self.enlarged_popup = None  # Popup window for enlargement
+
+        self.SetBackgroundColour(wx.NullColour)  # Default background color
 
         # Create a sizer for the panel
         self.sizer = wx.BoxSizer(wx.VERTICAL)
@@ -262,6 +372,10 @@ class ThumbnailToggleButton(wx.Panel):
         self.sizer.Add(self.button, 1, wx.EXPAND)
 
         self.SetSizer(self.sizer)
+
+        # Bind hover events for enlargement
+        self.Bind(wx.EVT_ENTER_WINDOW, self.on_hover)
+        self.Bind(wx.EVT_LEAVE_WINDOW, self.on_leave)
 
     def on_toggle(self, event=None):
         """Handle toggle state changes."""
@@ -287,6 +401,40 @@ class ThumbnailToggleButton(wx.Panel):
         else:
             parent_frame.status_bar.SetStatusText(f"{self.label} deselected")
 
+    def on_hover(self, event):
+        print("on_hover called")  # Debug print    
+        """Show an enlarged version of the thumbnail on hover."""
+        if not self.enlarged_popup:
+            mouse_x, mouse_y = wx.GetMousePosition()  # Get mouse pointer position
+            self.enlarged_popup = wx.PopupWindow(self, style=wx.BORDER_SIMPLE)
+            panel = wx.Panel(self.enlarged_popup)
+            sizer = wx.BoxSizer(wx.VERTICAL)
+
+            # Enlarge the bitmap for display
+            enlarged_bitmap = self.enlarge_bitmap(self.button.GetBitmap(), size=(200, 200))
+            static_bitmap = wx.StaticBitmap(panel, bitmap=enlarged_bitmap)
+            sizer.Add(static_bitmap, 1, wx.EXPAND | wx.ALL, 5)
+            panel.SetSizer(sizer)
+
+            self.enlarged_popup.SetSize((200, 200))
+            self.enlarged_popup.SetPosition((mouse_x + 10, mouse_y + 10))  # Offset the popup slightly from the pointer
+            self.enlarged_popup.Show()
+
+    def on_leave(self, event):
+        """Hide the enlarged popup when the mouse leaves."""
+        if self.enlarged_popup:
+            self.enlarged_popup.Destroy()
+            self.enlarged_popup = None
+
+    @staticmethod
+    def enlarge_bitmap(bitmap, size):
+        """Helper method to enlarge a wx.Bitmap."""
+        image = bitmap.ConvertToImage()
+        image = image.Scale(size[0], size[1], wx.IMAGE_QUALITY_HIGH)
+        return image.ConvertToBitmap()
+
+
+
 
 
 import wx
@@ -308,15 +456,20 @@ class ThumbnailScrollPanel(wx.ScrolledWindow):
         # Dictionary to track the state of toggle buttons by their labels
         self.thumbnail_buttons = {}
 
-    def add_thumbnail_button(self, pil_image, label="Thumbnail"):
+    def add_thumbnail_button(self, orig_image, pil_image, label="Thumbnail"):
         """Add a new ThumbnailToggleButton to the scrollable panel."""
         # Convert PIL.Image to wx.Bitmap
         wx_image = wx.Image(pil_image.width, pil_image.height)
         wx_image.SetData(pil_image.convert("RGB").tobytes())
         bitmap = wx_image.ConvertToBitmap()
 
+        wx_image = wx.Image(orig_image.width, orig_image.height)
+        wx_image.SetData(orig_image.convert("RGB").tobytes())
+        oring_bitmap = wx_image.ConvertToBitmap()
+
+
         # Create the toggle button with the converted bitmap
-        toggle_button = ThumbnailToggleButton(self, bitmap=bitmap, label=label)
+        toggle_button = ThumbnailToggleButton(self, bitmap=bitmap, orig_bitmap=oring_bitmap, label=label)
         self.sizer.Add(toggle_button, 0, wx.EXPAND | wx.ALL, 5)
         self.Layout()  # Refresh layout
         self.FitInside()  # Ensure the scrollable area fits the new content
