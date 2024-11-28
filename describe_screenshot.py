@@ -279,13 +279,33 @@ class WebViewPanel(wx.Panel):
         # Initialize content and collapse state
         wx.CallAfter(self.on_collapse_button_click, None)
         self.set_initial_content()
+        #self.Bind(wx.EVT_CHAR_HOOK, self.on_key_down)
+        #self.webview.Bind(wx.EVT_CHAR_HOOK, self.on_key_down)
+        
+        # Set focus handler
+        #self.webview.Bind(wx.EVT_SET_FOCUS, self.on_webview_focus)
+
+    def _on_webview_focus(self, event):
+        print("WebView received focus")
+        event.Skip()
+        
+    def _on_key_down(self, event):
+        print(f"Key pressed: {event.GetKeyCode()}")
+        if event.ControlDown() and event.GetKeyCode() == ord('V'):
+            print("Ctrl+V detected")
+            wx.CallAfter(self.handle_clipboard_paste)
+        event.Skip()
+
+            
     def on_text_ctrl_key(self, event):
         """Handle keyboard events in the prompt text control."""
         # Check for Alt+Enter
         key_code = event.GetKeyCode()
         
         # Check for Alt+Enter
-        if event.AltDown() and key_code == wx.WXK_RETURN:
+        if event.ControlDown() and key_code == ord('V'):
+            self.handle_clipboard_paste()
+        elif event.AltDown() and key_code == wx.WXK_RETURN:
             if self.ask_model_button.IsEnabled():
                 self.on_ask_model_button_click(None)
         # Check for Ctrl+A
@@ -297,6 +317,72 @@ class WebViewPanel(wx.Panel):
 
         else:
             event.Skip()  # Process other keys normally
+    def handle_clipboard_paste(self):
+        """Process clipboard data when Ctrl+V is pressed."""
+        global conversation_history
+        print("Handling paste")
+        
+        if not wx.TheClipboard.Open():
+            print("Failed to open clipboard")
+            return
+        def on_loaded(evt):
+            
+            if hasattr(self, 'image_data') and self.image_data:
+                js_script = """
+                    (function() {
+                        try {
+                            addSnapshot('%s');
+                        } catch (error) {
+                            console.error('Error adding image:', error);
+                        }
+                    })();
+                """ % self.image_data
+                new_webview.RunScript(js_script)   
+                          
+        try:
+            if wx.TheClipboard.IsSupported(wx.DataFormat(wx.DF_BITMAP)):
+                print("Bitmap data found")
+                bitmap_data = wx.BitmapDataObject()
+                success = wx.TheClipboard.GetData(bitmap_data)
+                
+                if success:
+                    print("Got bitmap data")
+                    bitmap = bitmap_data.GetBitmap()
+                    
+                    # Convert bitmap to base64
+                    image = bitmap.ConvertToImage()
+                    stream = io.BytesIO()
+                    image.SaveFile(stream, wx.BITMAP_TYPE_PNG)
+                    self.image_data=base64_image = base64.b64encode(stream.getvalue()).decode('utf-8')
+                    
+                    # Reset conversation history and request counter
+                    conversation_history = []
+                    self.request_counter = 0
+                    
+                    # Create new WebView before destroying old one
+                    new_webview = wx.html2.WebView.New(self.splitter)
+                    new_webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
+                    new_webview.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_webview)
+                    new_webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, on_loaded)   
+                    # Replace old WebView with new one
+                    old_webview = self.webview
+                    self.webview = new_webview
+                    self.splitter.ReplaceWindow(old_webview, new_webview)
+                    old_webview.Destroy()
+                    
+                    # Set content in new WebView
+                    self.set_initial_content()
+                    
+                    # Add image after WebView is ready
+                    #wx.CallAfter(self.add_image_as_log_entry, base64_image)
+                    
+                else:
+                    print("Failed to get bitmap data")
+            else:
+                print("No bitmap data in clipboard")
+        finally:
+            wx.TheClipboard.Close()
+
     def reset_state(self):
         """Reset processing state and content without visible flickering."""
         #self.Freeze()
