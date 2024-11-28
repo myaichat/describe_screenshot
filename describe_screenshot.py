@@ -298,69 +298,74 @@ class WebViewPanel(wx.Panel):
         else:
             event.Skip()  # Process other keys normally
     def reset_state(self):
-        """Safely reset the processing state and clear all content."""
-        print("Resetting state")
-        
-        # Reset processing flags and buttons
-        self.processing = False
-        self.ask_model_button.Enable()
-        self.active_threads = [t for t in self.active_threads if t.is_alive()]
-        
-        # Destroy and recreate WebView
-        self.webview.Destroy()
-        self.webview = wx.html2.WebView.New(self.splitter)
-        self.webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
-        self.webview.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_webview)
-        
-        # Replace the old WebView in the splitter
-        self.splitter.ReplaceWindow(self.splitter.GetWindow1(), self.webview)
-        
-        # Reset content
-        self.set_initial_content()
+        """Reset processing state and content without visible flickering."""
+        #self.Freeze()
+        try:
+            print("Resetting state")
+            
+            self.processing = False
+            self.ask_model_button.Enable()
+            self.active_threads = [t for t in self.active_threads if t.is_alive()]
+            
+            # Create new WebView before destroying old one
+            new_webview = wx.html2.WebView.New(self.splitter)
+            new_webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
+            new_webview.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_webview)
+            
+            # Set content in new WebView
+            self.set_initial_content(new_webview)
+            
+            def on_loaded(evt):
+                try:
+                    if hasattr(self, 'image_data') and self.image_data:
+                        js_script = """
+                            (function() {
+                                try {
+                                    addSnapshot('%s');
+                                } catch (error) {
+                                    console.error('Error adding image:', error);
+                                }
+                            })();
+                        """ % self.image_data
+                        new_webview.RunScript(js_script)
+                        
+                        if 'conversation_history' in globals():
+                            for entry in conversation_history:
+                                if entry['role'] == 'user':
+                                    content = entry['content']
+                                    if isinstance(content, str):
+                                        self.add_user_message_to_webview(new_webview, content)
+                                    elif isinstance(content, list):
+                                        for item in content:
+                                            if item['type'] == 'text':
+                                                self.add_user_message_to_webview(new_webview, item['text'])
+                                elif entry['role'] == 'assistant':
+                                    self.add_assistant_message_to_webview(new_webview, entry['content'])
+                finally:
+                    #self.Thaw()
+                    pass
+                                
+                # Only after content is loaded, swap the WebViews
+                old_webview = self.webview
+                self.webview = new_webview
+                self.splitter.ReplaceWindow(old_webview, new_webview)
+                old_webview.Destroy()
+                
+            new_webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, on_loaded)
+            
+            self.prompt_text_ctrl.SetValue("Describe this image")
+            
+            parent_frame = self.GetParent().GetParent()
+            if hasattr(parent_frame, 'status_bar'):
+                parent_frame.panel.update_status(0, "Processing state and content reset")
+    
+        except Exception as e:
+            wx.Thaw()
+            print(f"Error in reset_state: {e}")
+            raise
 
-        # Set up event handler for when content is loaded
-        def on_loaded(evt):
-            if hasattr(self, 'image_data') and self.image_data:
-                js_script = """
-                    (function() {
-                        try {
-                            addSnapshot('%s');
-                        } catch (error) {
-                            console.error('Error adding image:', error);
-                        }
-                    })();
-                """ % self.image_data
-                self.webview.RunScript(js_script)
-
-                # Restore chat history in webview if it exists
-                if 'conversation_history' in globals():
-                    for entry in conversation_history:
-                        if entry['role'] == 'user':
-                            if isinstance(entry['content'], str):
-                                self.add_user_message(entry['content'])
-                            elif isinstance(entry['content'], list):
-                                for item in entry['content']:
-                                    if item['type'] == 'text':
-                                        self.add_user_message(item['text'])
-
-                        elif entry['role'] == 'assistant':
-                            self.add_assistant_message(entry['content'])
-
-
-        self.webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, on_loaded)
-
-
-
-        # Clear the prompt text
-        self.prompt_text_ctrl.SetValue("Describe this image")
-        
-        # Update status
-        parent_frame = self.GetParent().GetParent()
-        if hasattr(parent_frame, 'status_bar'):
-            parent_frame.panel.update_status(0, "Processing state and content reset")
-        pp(conversation_history)
-    def add_user_message(self, message):
-        """Add a user message to the WebView with proper escaping."""
+    def add_user_message_to_webview(self, webview, message):
+        """Add user message to specific WebView instance."""
         escaped_message = (message.replace('\\', '\\\\')
                                 .replace("'", "\\'")
                                 .replace('"', '\\"')
@@ -372,23 +377,16 @@ class WebViewPanel(wx.Panel):
             (function() {{
                 try {{
                     var table = document.getElementById('log-container');
-                    if (!table) {{
-                        console.error('Log container not found');
-                        return;
-                    }}
-
+                    if (!table) return;
                     var userRow = document.createElement('tr');
                     userRow.id = 'user-{self.request_counter}';
-                    
                     var userCell = document.createElement('td');
                     var userPrompt = document.createElement('div');
                     userPrompt.className = 'user-prompt';
                     userPrompt.textContent = `{escaped_message}`;
-                    
                     userCell.appendChild(userPrompt);
                     userRow.appendChild(userCell);
                     table.appendChild(userRow);
-
                     if ({str(self.auto_scroll).lower()}) {{
                         table.scrollTop = table.scrollHeight;
                     }}
@@ -397,10 +395,10 @@ class WebViewPanel(wx.Panel):
                 }}
             }})();
         """
-        self.webview.RunScript(js_script)
+        webview.RunScript(js_script)
 
-    def add_assistant_message(self, message):
-        """Add an assistant message to the WebView with proper escaping."""
+    def add_assistant_message_to_webview(self, webview, message):
+        """Add assistant message to specific WebView instance."""
         escaped_message = (message.replace('\\', '\\\\')
                                 .replace("'", r"\'")
                                 .replace('"', r'\"')
@@ -412,23 +410,16 @@ class WebViewPanel(wx.Panel):
             (function() {{
                 try {{
                     var table = document.getElementById('log-container');
-                    if (!table) {{
-                        console.error('Log container not found');
-                        return;
-                    }}
-
+                    if (!table) return;
                     var responseRow = document.createElement('tr');
                     responseRow.id = 'response-{self.request_counter}';
-                    
                     var responseCell = document.createElement('td');
                     var responseDiv = document.createElement('div');
                     responseDiv.className = 'model-response';
                     responseDiv.textContent = "{escaped_message}";
-                    
                     responseCell.appendChild(responseDiv);
                     responseRow.appendChild(responseCell);
                     table.appendChild(responseRow);
-
                     if ({str(self.auto_scroll).lower()}) {{
                         table.scrollTop = table.scrollHeight;
                     }}
@@ -437,7 +428,9 @@ class WebViewPanel(wx.Panel):
                 }}
             }})();
         """
-        self.webview.RunScript(js_script)
+        webview.RunScript(js_script)
+
+
     def toggle_mock(self, event):
         if self.mock_button.GetValue():
             self.mock_button.SetLabel("Mock: ON")
@@ -919,7 +912,9 @@ class WebViewPanel(wx.Panel):
         event.Skip()
 
 
-    def set_initial_content(self):
+    def set_initial_content(self, webview = None):
+        if not webview:
+            webview = self.webview
         initial_html = """
         <html>
         <head>
@@ -1090,7 +1085,7 @@ class WebViewPanel(wx.Panel):
         </body>
         </html>
         """
-        self.webview.SetPage(initial_html, "")
+        webview.SetPage(initial_html, "")
 
 
 
@@ -1861,15 +1856,15 @@ class ScreenshotApp(wx.App):
 
 
     def show_monitor_selection_dialog(self):
-        """Show dialog to select a monitor."""
+        global is_mock
         dialog = MonitorSelectionDialog(None)
         dialog.CenterOnScreen()
-        result = dialog.ShowModal()
-        if result == wx.ID_OK:
-            # Correctly retrieve the selected monitor index as an integer
-            selected_monitor = dialog.radio_box.GetSelection() + 1  # Monitors in mss start from 1
+        if dialog.ShowModal() == wx.ID_OK:
+            selected_monitor = dialog.radio_box.GetSelection() + 1
+            global is_mock
+            is_mock = dialog.get_mock_state()
             dialog.Destroy()
-            print(f"Selected Monitor: {selected_monitor}")
+            print(f"Selected Monitor: {selected_monitor}, Mock Mode: {is_mock}")
             self.show_overlay(selected_monitor)
         else:
             dialog.Destroy()

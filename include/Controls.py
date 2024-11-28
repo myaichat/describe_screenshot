@@ -9,7 +9,7 @@ class MonitorSelectionDialog(wx.Dialog):
         super().__init__(parent, *args, **kwargs)
         
         self.SetTitle("Select Monitor")
-        self.SetSize((500, 250))  # Increase size for better button visibility
+        self.SetSize((500, 350))
 
         panel = wx.Panel(self)
         vbox = wx.BoxSizer(wx.VERTICAL)
@@ -37,25 +37,39 @@ class MonitorSelectionDialog(wx.Dialog):
         )
         vbox.Add(self.radio_box, flag=wx.ALL | wx.EXPAND, border=10)
 
-        # Button sizer
-        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.mode_radio = wx.RadioBox(
+            panel,
+            label="Select Mode:",
+            choices=["Live", "Mock"],
+            majorDimension=1,
+            style=wx.RA_SPECIFY_ROWS
+        )
+        vbox.Add(self.mode_radio, flag=wx.ALL | wx.EXPAND, border=10)
 
-        self.ok_button = wx.Button(panel, wx.ID_OK, "OK", size=(100, 40))  # Increased size
-        self.ok_button.Bind(wx.EVT_BUTTON, self.on_ok)
-        button_sizer.Add(self.ok_button, flag=wx.ALL | wx.ALIGN_CENTER, border=10)
+        # Create OK button with panel as parent
 
-        vbox.Add(button_sizer, flag=wx.ALIGN_CENTER | wx.ALL, border=10)
+        ok_button = wx.Button(panel, wx.ID_OK, "OK", size=(200, 50))
+        ok_button.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        vbox.Add(ok_button, flag=wx.ALIGN_CENTER | wx.ALL, border=10)
 
         panel.SetSizer(vbox)
-        vbox.Fit(panel)  # Ensure the panel's size fits the content
-        self.Layout()  # Ensure layout updates correctly
+        self.Layout()
 
-        # Set OK button as the default button
-        self.ok_button.SetDefault()
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_key_press)
 
-    def on_ok(self, event):
-        self.EndModal(wx.ID_OK)
+    def on_key_press(self, event):
+        key_code = event.GetKeyCode()
+        if event.AltDown():
+            if key_code == wx.WXK_LEFT:
+                self.mode_radio.SetSelection(0)
+            elif key_code == wx.WXK_RIGHT:
+                self.mode_radio.SetSelection(1)
+        elif key_code == wx.WXK_RETURN:
+            self.EndModal(wx.ID_OK)
+        event.Skip()
 
+    def get_mock_state(self):
+        return self.mode_radio.GetSelection() == 1
 
 
 
