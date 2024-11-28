@@ -27,7 +27,10 @@ class MonitorSelectionDialog(wx.Dialog):
             wx.MessageBox("No monitors detected!", "Error", wx.OK | wx.ICON_ERROR)
             self.EndModal(wx.ID_CANCEL)
             return
-
+        
+        # Create horizontal box for radio box and auto execute
+        
+        
         self.radio_box = wx.RadioBox(
             panel,
             label="Choose a monitor:",
@@ -36,7 +39,11 @@ class MonitorSelectionDialog(wx.Dialog):
             style=wx.RA_SPECIFY_ROWS,
         )
         vbox.Add(self.radio_box, flag=wx.ALL | wx.EXPAND, border=10)
+        
 
+        
+        
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
         self.mode_radio = wx.RadioBox(
             panel,
             label="Select Mode:",
@@ -44,10 +51,12 @@ class MonitorSelectionDialog(wx.Dialog):
             majorDimension=1,
             style=wx.RA_SPECIFY_ROWS
         )
-        vbox.Add(self.mode_radio, flag=wx.ALL | wx.EXPAND, border=10)
-
-        # Create OK button with panel as parent
-
+        hbox.Add(self.mode_radio, proportion=1, flag=wx.EXPAND | wx.RIGHT, border=10)  
+        # Auto Execute checkbox
+        self.auto_execute = wx.CheckBox(panel, label="Auto Execute")
+        self.auto_execute.SetValue(True)
+        hbox.Add(self.auto_execute, flag=wx.ALIGN_CENTER_VERTICAL)        
+        vbox.Add(hbox, flag=wx.ALL | wx.EXPAND, border=10)
         ok_button = wx.Button(panel, wx.ID_OK, "OK", size=(200, 50))
         ok_button.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         vbox.Add(ok_button, flag=wx.ALIGN_CENTER | wx.ALL, border=10)
@@ -64,6 +73,8 @@ class MonitorSelectionDialog(wx.Dialog):
                 self.mode_radio.SetSelection(0)
             elif key_code == wx.WXK_RIGHT:
                 self.mode_radio.SetSelection(1)
+            elif key_code == wx.WXK_RETURN:  # Alt+Enter
+                self.auto_execute.SetValue(not self.auto_execute.GetValue())                
         elif key_code == wx.WXK_RETURN:
             self.EndModal(wx.ID_OK)
         event.Skip()
@@ -71,6 +82,8 @@ class MonitorSelectionDialog(wx.Dialog):
     def get_mock_state(self):
         return self.mode_radio.GetSelection() == 1
 
+    def get_auto_execute(self):
+        return self.auto_execute.GetValue()
 
 
 import wx

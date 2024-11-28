@@ -21,7 +21,7 @@ client=openai.OpenAI()
 conversation_history=[]
 
 is_mock=False
-
+is_autoexec=True
 def describe_screenshot(prompt, model, image_data, append_callback=None, history=False, mock=False, request_id=1):
     global conversation_history, client
     
@@ -1482,7 +1482,7 @@ class CoordinatesPanel(wx.Panel):
         self.group_list.SetSelection(self.group_list.GetCount() - 1)
 
     def take_single_screenshot(self):
-        
+        global is_autoexec
         """Take screenshots for all toggled thumbnail buttons and display them in a single scrollable panel."""
         # Clear the coordinates list box for the new group
         main_frame = self.GetParent()  # Reference to the main frame
@@ -1581,7 +1581,9 @@ class CoordinatesPanel(wx.Panel):
         assert webview_panel.webview is not None, "WebView is not available!"
         assert webview_panel.image_data is not None , "Image data is not available!"
         #self.trigger_image_description(pil_image, thumbnail, coordinates)
-        wx.CallAfter(self.webview_panel.on_ask_model_button_click, None)
+        # At the end of the try block, right after self.show_frame(main_frame):
+        if is_autoexec:
+            wx.CallAfter(self.webview_panel.on_ask_model_button_click, None)
 
 
     def bitmap_to_base64(self, bitmap):
@@ -1942,13 +1944,14 @@ class ScreenshotApp(wx.App):
 
 
     def show_monitor_selection_dialog(self):
-        global is_mock
+        global is_mock, is_autoexec
         dialog = MonitorSelectionDialog(None)
         dialog.CenterOnScreen()
         if dialog.ShowModal() == wx.ID_OK:
             selected_monitor = dialog.radio_box.GetSelection() + 1
             global is_mock
             is_mock = dialog.get_mock_state()
+            is_autoexec = dialog.get_auto_execute()
             dialog.Destroy()
             print(f"Selected Monitor: {selected_monitor}, Mock Mode: {is_mock}")
             self.show_overlay(selected_monitor)
