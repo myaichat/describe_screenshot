@@ -1178,6 +1178,7 @@ class WebViewPanel(wx.Panel):
 
                         
 
+
 class CoordinatesPanel(wx.Panel):
     def __init__(self, parent, coordinates, callback, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
@@ -1191,77 +1192,69 @@ class CoordinatesPanel(wx.Panel):
         # Main horizontal sizer for overall layout
         main_hbox = wx.BoxSizer(wx.HORIZONTAL)
 
-        # Vertical sizer for scrollable thumbnails and the button
+        # Left side vertical sizer for thumbnails and buttons
         thumbnail_vbox = wx.BoxSizer(wx.VERTICAL)
 
-        # Scrollable thumbnail panel
-        self.thumbnail_scroll_panel = ThumbnailScrollPanel(self, size=(150, -1))  # Fixed width
-        thumbnail_vbox.Add(self.thumbnail_scroll_panel, 1, wx.EXPAND | wx.ALL, 5)
+        # Scrollable thumbnail panel at the top
+        self.thumbnail_scroll_panel = ThumbnailScrollPanel(self, size=(150, 200))
+        thumbnail_vbox.Add(self.thumbnail_scroll_panel, 0, wx.EXPAND | wx.ALL, 5)
 
-        # Add New Coordinates button
-        add_coordinates_button = wx.Button(self, label="Add New \nCoordinates")
+        # Add New Coordinates button directly under thumbnail panel
+        add_coordinates_button = wx.Button(self, label="Add New\nCoordinates")
         add_coordinates_button.Bind(wx.EVT_BUTTON, self.add_new_coordinates)
-        thumbnail_vbox.Add(add_coordinates_button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        thumbnail_vbox.Add(add_coordinates_button, 0, wx.EXPAND | wx.ALL, 5)
 
+        # Add stretchable space between top and bottom buttons
+        thumbnail_vbox.AddStretchSpacer(1)
+
+        # Bottom buttons section
+        bottom_buttons_vbox = wx.BoxSizer(wx.VERTICAL)
+
+        # Create and add bottom buttons
+        screenshot_btn = wx.Button(self, label="Take\nScreenshot")
+        screenshot_btn.Bind(wx.EVT_BUTTON, lambda evt: self.take_single_screenshot())
+        bottom_buttons_vbox.Add(screenshot_btn, 0, wx.EXPAND | wx.ALL, 2)
+
+        group_screenshot_btn = wx.Button(self, label="Take Group\nScreenshot")
+        group_screenshot_btn.Bind(wx.EVT_BUTTON, lambda evt: self.take_group_screenshot())
+        bottom_buttons_vbox.Add(group_screenshot_btn, 0, wx.EXPAND | wx.ALL, 2)
+
+        end_group_btn = wx.Button(self, label="End\nGroup")
+        end_group_btn.Bind(wx.EVT_BUTTON, lambda evt: self.end_group())
+        bottom_buttons_vbox.Add(end_group_btn, 0, wx.EXPAND | wx.ALL, 2)
+
+        coord_btn = wx.Button(self, label="Update\nCoordinates")
+        coord_btn.Bind(wx.EVT_BUTTON, self.open_overlay)
+        bottom_buttons_vbox.Add(coord_btn, 0, wx.EXPAND | wx.ALL, 2)
+
+        save_btn = wx.Button(self, label="Save\nScreenshot")
+        save_btn.Bind(wx.EVT_BUTTON, self.save_screenshot)
+        bottom_buttons_vbox.Add(save_btn, 0, wx.EXPAND | wx.ALL, 2)
+
+        self.show_webview_btn = wx.Button(self, label="Hide Webview")
+        self.show_webview_btn.Bind(wx.EVT_BUTTON, self.on_show_webview)
+        bottom_buttons_vbox.Add(self.show_webview_btn, 0, wx.EXPAND | wx.ALL, 2)
+
+        # Add bottom buttons section to main vertical sizer
+        thumbnail_vbox.Add(bottom_buttons_vbox, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Add the left side to main horizontal sizer
         main_hbox.Add(thumbnail_vbox, 0, wx.EXPAND | wx.ALL, 5)
 
-        # Vertical sizer for group list and buttons
+        # Create the middle section with group and coordinates lists
         left_vbox = wx.BoxSizer(wx.VERTICAL)
-
-        # List control for groups
+        
         self.group_list = wx.ListBox(self, style=wx.LB_SINGLE)
         self.group_list.Bind(wx.EVT_LISTBOX, self.on_group_selected)
         left_vbox.Add(self.group_list, 1, wx.EXPAND | wx.ALL, 5)
 
-        # New list control for active tab coordinates
         self.coordinates_listbox = wx.ListBox(self, style=wx.LB_SINGLE)
-        left_vbox.Add(self.coordinates_listbox, 1, wx.EXPAND | wx.ALL, 5)
-        # Inside the CoordinatesPanel constructor
         self.coordinates_listbox.Bind(wx.EVT_LISTBOX, self.on_coordinates_listbox_selection)
-
-
-        # Buttons column
-        button_vbox = wx.BoxSizer(wx.VERTICAL)
-        if 1:
-            s_vbox = wx.BoxSizer(wx.HORIZONTAL)
-            screenshot_btn = wx.Button(self, label="Take \nScreenshot")
-            screenshot_btn.Bind(wx.EVT_BUTTON, lambda evt: self.take_single_screenshot())
-
-            s_vbox.Add(screenshot_btn, flag=wx.ALL, border=5)
-            
-            self.show_webview_btn =show_webview_btn= wx.Button(self, label="Hide Webview")
-            show_webview_btn.Bind(wx.EVT_BUTTON, self.on_show_webview)
-
-            s_vbox.Add(show_webview_btn, flag=wx.ALL, border=5)
-            button_vbox.Add(s_vbox, flag=wx.ALL, border=5)
-
-        if 1:
-            g_vbox = wx.BoxSizer(wx.HORIZONTAL)
-            group_screenshot_btn = wx.Button(self, label="Take Group \nScreenshot")
-            group_screenshot_btn.Bind(wx.EVT_BUTTON, lambda evt: self.take_group_screenshot())
-            g_vbox.Add(group_screenshot_btn, flag=wx.ALL, border=5)
-
-            end_group_btn = wx.Button(self, label="End \nGroup")
-            end_group_btn.Bind(wx.EVT_BUTTON, lambda evt: self.end_group())
-            g_vbox.Add(end_group_btn, flag=wx.ALL, border=5)
-            button_vbox.Add(g_vbox, flag=wx.ALL, border=5)
-        if 1:
-            h_vbox = wx.BoxSizer(wx.HORIZONTAL)
-
-            coord_btn = wx.Button(self, label="Update \nCoordinates")
-            coord_btn.Bind(wx.EVT_BUTTON, self.open_overlay)
-            h_vbox.Add(coord_btn, flag=wx.ALL, border=5)
-
-            save_btn = wx.Button(self, label="Save \nScreenshot")
-            save_btn.Bind(wx.EVT_BUTTON, self.save_screenshot)
-            h_vbox.Add(save_btn, flag=wx.ALL, border=5)
-            button_vbox.Add(h_vbox, flag=wx.ALL, border=5)
-
-        left_vbox.Add(button_vbox, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 5)
+        left_vbox.Add(self.coordinates_listbox, 1, wx.EXPAND | wx.ALL, 5)
 
         main_hbox.Add(left_vbox, 0, wx.EXPAND | wx.ALL, 5)
         if 1:
-    # Main horizontal layout with splitter
+            # Main horizontal layout with splitter
             self.splitter = wx.SplitterWindow(self)
 
             # Left panel for the notebook
