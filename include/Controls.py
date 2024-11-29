@@ -228,7 +228,7 @@ class ScreenshotOverlay(wx.Frame):
             if self.coordinates_frame:
                 print("Showing CoordinatesFrame 222")  # Debug print
                 self.coordinates_frame.Show()
-                self.coordinates_frame.panel.on_show_webview(button=self.coordinates_frame.panel.show_webview_btn)
+                self.coordinates_frame.panel.on_show_webview(button=self.coordinates_frame.panel.hpanel.show_webview_btn)
             self.Close() 
 
 
@@ -487,3 +487,66 @@ class ThumbnailScrollPanel(wx.ScrolledWindow):
                 # Handle the toggled button (already toggling logic is in the button itself)
                 wx.MessageBox(f"Button '{label}' toggled.", "Toggle Event", wx.OK)
                 break
+
+
+class ModelRadioBox(wx.Panel):
+    def __init__(self, parent, model_names, default_selection=0):
+        super().__init__(parent)
+        
+        self.model_names = model_names
+        self.current_model = model_names[default_selection]
+
+        self.radio_box = wx.RadioBox(
+            self,
+            choices=model_names,
+            majorDimension=1,
+            style=wx.RA_SPECIFY_COLS
+        )
+        self.radio_box.SetSelection(default_selection)
+        self.radio_box.Bind(wx.EVT_RADIOBOX, self.on_model_select)
+
+        # Layout
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self.radio_box, 1, wx.EXPAND | wx.ALL, 5)
+        self.SetSizer(sizer)
+        
+    def on_model_select(self, event):
+        self.current_model = self.model_names[event.GetSelection()]
+        print(self.current_model)
+        
+    def get_current_model(self):
+        return self.current_model
+class ModelSelectionNotebook(wx.Notebook):
+    def __init__(self, parent):
+        super().__init__(parent, style=wx.NB_TOP | wx.NB_MULTILINE)
+        
+        # OpenAI models
+        openai_models = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o"]
+        default_openai_selection = 1  # Default to "gpt-4o-mini"
+        openai_page = ModelRadioBox(self, openai_models, default_openai_selection)
+        self.AddPage(openai_page, "OpenAI")
+
+        # Claude models
+        claude_models = ["claude-3-5-haiku-latest","claude-3-5-sonnet-latest"]
+        default_claude_selection = 0  # Default to "Claude 3 Haiku"
+        claude_page = ModelRadioBox(self, claude_models, default_claude_selection)
+        self.AddPage(claude_page, "Claude 3.5")
+
+        claude_models2 = ["claude-3-opus-latest", "claude-3-sonnet-20240229","claude-3-haiku-20240307"]
+        default_claude_selection2 = 0  # Default to "Claude 3 Haiku"
+        claude_page2 = ModelRadioBox(self, claude_models2, default_claude_selection2)
+        self.AddPage(claude_page2, "Claude 3")
+
+
+        # Store references for accessing selected models later
+        self.openai_radiobox = openai_page
+        self.claude_radiobox = claude_page
+        self.claude_radiobox2 = claude_page2
+
+    def get_selected_models(self):
+        return {
+            "OpenAI": self.openai_radiobox.get_current_model(),
+            "Claude": self.claude_radiobox.get_current_model(),
+            "Claude2": self.claude_radiobox2.get_current_model()
+        }
+

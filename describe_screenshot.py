@@ -8,6 +8,7 @@ import wx.html2
 import ctypes
 ctypes.windll.shcore.SetProcessDpiAwareness(2)
 from include.Controls import MonitorSelectionDialog, ScreenshotOverlay,  ThumbnailScrollPanel, ThumbnailToggleButton
+from include.Controls import ModelSelectionNotebook
 
 import sys
 sys.setrecursionlimit(10000)
@@ -97,68 +98,6 @@ Initializing App
         #wx.CallAfter(self.webview_panel.ask_model_button.Enable)
         pass
 
-class ModelRadioBox(wx.Panel):
-    def __init__(self, parent, model_names, default_selection=0):
-        super().__init__(parent)
-        
-        self.model_names = model_names
-        self.current_model = model_names[default_selection]
-
-        self.radio_box = wx.RadioBox(
-            self,
-            choices=model_names,
-            majorDimension=1,
-            style=wx.RA_SPECIFY_COLS
-        )
-        self.radio_box.SetSelection(default_selection)
-        self.radio_box.Bind(wx.EVT_RADIOBOX, self.on_model_select)
-
-        # Layout
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self.radio_box, 1, wx.EXPAND | wx.ALL, 5)
-        self.SetSizer(sizer)
-        
-    def on_model_select(self, event):
-        self.current_model = self.model_names[event.GetSelection()]
-        print(self.current_model)
-        
-    def get_current_model(self):
-        return self.current_model
-
-
-class ModelSelectionNotebook(wx.Notebook):
-    def __init__(self, parent):
-        super().__init__(parent, style=wx.NB_TOP | wx.NB_MULTILINE)
-        
-        # OpenAI models
-        openai_models = ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o"]
-        default_openai_selection = 1  # Default to "gpt-4o-mini"
-        openai_page = ModelRadioBox(self, openai_models, default_openai_selection)
-        self.AddPage(openai_page, "OpenAI")
-
-        # Claude models
-        claude_models = ["claude-3-5-haiku-latest","claude-3-5-sonnet-latest"]
-        default_claude_selection = 0  # Default to "Claude 3 Haiku"
-        claude_page = ModelRadioBox(self, claude_models, default_claude_selection)
-        self.AddPage(claude_page, "Claude 3.5")
-
-        claude_models2 = ["claude-3-opus-latest", "claude-3-sonnet-20240229","claude-3-haiku-20240307"]
-        default_claude_selection2 = 0  # Default to "Claude 3 Haiku"
-        claude_page2 = ModelRadioBox(self, claude_models2, default_claude_selection2)
-        self.AddPage(claude_page2, "Claude 3")
-
-
-        # Store references for accessing selected models later
-        self.openai_radiobox = openai_page
-        self.claude_radiobox = claude_page
-        self.claude_radiobox2 = claude_page2
-
-    def get_selected_models(self):
-        return {
-            "OpenAI": self.openai_radiobox.get_current_model(),
-            "Claude": self.claude_radiobox.get_current_model(),
-            "Claude2": self.claude_radiobox2.get_current_model()
-        }
 
 
 
@@ -1175,32 +1114,23 @@ class WebViewPanel(wx.Panel):
 
 
 
-
-                        
-
-
-class CoordinatesPanel(wx.Panel):
-    def __init__(self, parent, coordinates, callback, *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
-
-        self.coordinates = coordinates
-        self.callback = callback
-        self.screenshot_groups = {}
-        self.current_group = None
-        self.current_coordinates = None
-
-        # Main horizontal sizer for overall layout
+class ControlPanel(wx.Panel):
+    def __init__(self, parent, *args, **kwargs):
+        super(ControlPanel, self).__init__(parent, *args, **kwargs)
+        hpanel=self
         main_hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hpanel.SetSizer(main_hbox)          
+        
 
         # Left side vertical sizer for thumbnails and buttons
         thumbnail_vbox = wx.BoxSizer(wx.VERTICAL)
 
         # Scrollable thumbnail panel at the top
-        self.thumbnail_scroll_panel = ThumbnailScrollPanel(self, size=(150, 200))
+        self.thumbnail_scroll_panel = ThumbnailScrollPanel(hpanel, size=(150, 200))
         thumbnail_vbox.Add(self.thumbnail_scroll_panel, 0, wx.EXPAND | wx.ALL, 5)
 
         # Add New Coordinates button directly under thumbnail panel
-        add_coordinates_button = wx.Button(self, label="Add New\nCoordinates")
+        add_coordinates_button = wx.Button(hpanel, label="Add New\nCoordinates")
         add_coordinates_button.Bind(wx.EVT_BUTTON, self.add_new_coordinates)
         thumbnail_vbox.Add(add_coordinates_button, 0, wx.EXPAND | wx.ALL, 5)
 
@@ -1211,28 +1141,29 @@ class CoordinatesPanel(wx.Panel):
         bottom_buttons_vbox = wx.BoxSizer(wx.VERTICAL)
 
         # Create and add bottom buttons
-        screenshot_btn = wx.Button(self, label="Take\nScreenshot")
+        screenshot_btn = wx.Button(hpanel, label="Take\nScreenshot")
         screenshot_btn.Bind(wx.EVT_BUTTON, lambda evt: self.take_single_screenshot())
         bottom_buttons_vbox.Add(screenshot_btn, 0, wx.EXPAND | wx.ALL, 2)
 
-        group_screenshot_btn = wx.Button(self, label="Take Group\nScreenshot")
+        self.group_screenshot_btn=group_screenshot_btn = wx.Button(hpanel, label="Take Group\nScreenshot")
         group_screenshot_btn.Bind(wx.EVT_BUTTON, lambda evt: self.take_group_screenshot())
         bottom_buttons_vbox.Add(group_screenshot_btn, 0, wx.EXPAND | wx.ALL, 2)
 
-        end_group_btn = wx.Button(self, label="End\nGroup")
+        end_group_btn = wx.Button(hpanel, label="End\nGroup")
         end_group_btn.Bind(wx.EVT_BUTTON, lambda evt: self.end_group())
         bottom_buttons_vbox.Add(end_group_btn, 0, wx.EXPAND | wx.ALL, 2)
 
-        coord_btn = wx.Button(self, label="Update\nCoordinates")
-        coord_btn.Bind(wx.EVT_BUTTON, self.open_overlay)
+        self.coord_btn =coord_btn= wx.Button(hpanel, label="Update\nCoordinates")
+        #coord_btn.Bind(wx.EVT_BUTTON, self.open_overlay)
         bottom_buttons_vbox.Add(coord_btn, 0, wx.EXPAND | wx.ALL, 2)
 
-        save_btn = wx.Button(self, label="Save\nScreenshot")
-        save_btn.Bind(wx.EVT_BUTTON, self.save_screenshot)
+        self.save_btn=save_btn = wx.Button(hpanel, label="Save\nScreenshot")
+        #save_btn.Bind(wx.EVT_BUTTON, self.save_screenshot)
         bottom_buttons_vbox.Add(save_btn, 0, wx.EXPAND | wx.ALL, 2)
 
-        self.show_webview_btn = wx.Button(self, label="Hide Webview")
-        self.show_webview_btn.Bind(wx.EVT_BUTTON, self.on_show_webview)
+        self.show_webview_btn = wx.Button(hpanel, label="Hide Webview")
+        #self.show_webview_btn.Bind(wx.EVT_BUTTON, self.on_show_webview)
+        #hpanel.show_webview_btn.Bind(wx.EVT_BUTTON, self.on_show_webview)  
         bottom_buttons_vbox.Add(self.show_webview_btn, 0, wx.EXPAND | wx.ALL, 2)
 
         # Add bottom buttons section to main vertical sizer
@@ -1244,141 +1175,17 @@ class CoordinatesPanel(wx.Panel):
         # Create the middle section with group and coordinates lists
         left_vbox = wx.BoxSizer(wx.VERTICAL)
         
-        self.group_list = wx.ListBox(self, style=wx.LB_SINGLE)
+        self.group_list = wx.ListBox(hpanel, style=wx.LB_SINGLE)
         self.group_list.Bind(wx.EVT_LISTBOX, self.on_group_selected)
         left_vbox.Add(self.group_list, 1, wx.EXPAND | wx.ALL, 5)
 
-        self.coordinates_listbox = wx.ListBox(self, style=wx.LB_SINGLE)
+        self.coordinates_listbox = wx.ListBox(hpanel, style=wx.LB_SINGLE)
         self.coordinates_listbox.Bind(wx.EVT_LISTBOX, self.on_coordinates_listbox_selection)
         left_vbox.Add(self.coordinates_listbox, 1, wx.EXPAND | wx.ALL, 5)
 
         main_hbox.Add(left_vbox, 0, wx.EXPAND | wx.ALL, 5)
-        if 1:
-            # Main horizontal layout with splitter
-            self.splitter = wx.SplitterWindow(self)
-
-            # Left panel for the notebook
-            self.notebook_panel = wx.Panel(self.splitter)
-            notebook_sizer = wx.BoxSizer(wx.VERTICAL)
-
-            self.notebook = wx.Notebook(self.notebook_panel)
-            self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_notebook_page_changed)
-            notebook_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
-
-            self.notebook_panel.SetSizer(notebook_sizer)
-            # Right panel for WebView
-            self.webview_panel = WebViewPanel(self.splitter)
-
-
-            # Configure splitter
-            self.splitter.SplitVertically(self.notebook_panel, self.webview_panel)
-
-            # Set the sash position to ensure WebView is visible initially
-            #self.splitter.SetSashPosition(int(self.GetSize().x -50), redraw=True)  # Allocate 50% to both
-            self.splitter.SetMinimumPaneSize(150)
-            self.splitter.Layout() 
-
-            # Set the initial button state
-            self.show_webview_btn.SetLabel("Show Webview")
-
-            # Set the initial button state
-            
-            self.show_webview_btn.Bind(wx.EVT_BUTTON, self.on_show_webview)          
-
-            # Configure splitter
-            #self.splitter.SplitVertically(self.notebook_panel, self.webview_panel)
-            #self.splitter.SetSashGravity(1)  # Allocate more space to the notebook
-            #self.splitter.SetMinimumPaneSize(200)
-            self.Bind(wx.EVT_SIZE, self.on_size) # Allocate 75% to the notebook
-            #wx.CallAfter(self.on_show_webview,wx.CommandEvent())
-            #wx.CallAfter(wx.PostEvent,self.show_webview_btn, wx.CommandEvent(wx.wxEVT_BUTTON))
-            #self.on_show_webview(button=self.show_webview_btn)
-
-
-
-
-        main_hbox.Add(self.splitter, 1, wx.EXPAND | wx.ALL, 5)
-
-        self.SetSizer(main_hbox)
-    def on_size(self, event):
-        """Adjust the sash position after the panel is resized."""
-        self.splitter.SetSashPosition(int(self.GetSize().x * 0.75))  # Allocate 75% to the notebook
-        self.Unbind(wx.EVT_SIZE)  # Unbind to avoid repeated adjustments
-        event.Skip()
-
-    def on_show_webview(self, event=None, button=None):
-        """Toggle the splitter sash position and update the button label."""
-        if not button:  # Use the button reference if provided
-            button = event.GetEventObject() if event else self.show_webview_btn
-
-        current_label = button.GetLabel()
-        total_width = self.GetSize().x
-
-        # Determine the new sash position based on the current label
-        if current_label == "Show Webview":
-            # Move sash to allocate more space to WebView
-            new_position = 150  # Minimal space for notebook
-            button.SetLabel("Hide Webview")
-            self.update_status(0,"WebView panel shown.")
-        else:
-            # Move sash to allocate more space to the notebook
-            new_position = total_width - 150  # Minimal space for WebView
-            button.SetLabel("Show Webview")
-            self.update_status(0,"WebView panel minimized.")
-
-        # Adjust the sash position
-        self.splitter.SetSashPosition(new_position, redraw=True)
-        self.splitter.Layout()
-        self.Layout()
-
-
-
-    def on_coordinates_listbox_selection(self, event):
-        """Handle selection of an item in the coordinates list control."""
-        selected_index = self.coordinates_listbox.GetSelection()
-        if selected_index == wx.NOT_FOUND:
-            return  # No selection made
-
-        # Get the corresponding notebook tab
-        current_tab_index = self.notebook.GetSelection()
-        if current_tab_index == wx.NOT_FOUND:
-            return  # No active tab
-
-        current_tab = self.notebook.GetPage(current_tab_index)
-        if not isinstance(current_tab, wx.ScrolledWindow):
-            return  # Ensure the tab is a scrollable panel
-
-        # Scroll to the selected canvas
-        selected_canvas = current_tab.GetChildren()[selected_index]
-        if isinstance(selected_canvas, wx.StaticBitmap):
-            # Ensure the canvas is visible
-            x, y = selected_canvas.GetPosition()
-            current_tab.Scroll(x // 10, y // 10)  # Scroll to the canvas position (scaled by scroll rate)
-            selected_canvas.SetFocus()  # Optional: Set focus to the canvas
-
-            # Update status bar
-            self.update_status(0,f"Scrolled to coordinate {selected_index + 1}")
-
-
-
-    def on_notebook_page_changed(self, event):
-        """Update the coordinates listbox when the notebook tab changes."""
-        self.coordinates_listbox.Clear()
-
-        # Get the current group name
-        current_tab_index = self.notebook.GetSelection()
-        if current_tab_index == wx.NOT_FOUND:
-            return
-
-        tab_label = self.notebook.GetPageText(current_tab_index)
-        group_name = tab_label.split(" ")[-1].strip("()")
-
-        if group_name in self.screenshot_groups:
-            for i, _ in enumerate(self.screenshot_groups[group_name], start=1):
-                self.coordinates_listbox.Append(f"coord_{i}")
-
-        event.Skip()  # Allow the default behavior
-
+        self.show_webview_btn.SetLabel("Show Webview")
+        self.screenshot_groups = {}
     def add_new_coordinates(self, event):
         """Open overlay window to define new screenshot coordinates."""
         try:
@@ -1414,6 +1221,58 @@ class CoordinatesPanel(wx.Panel):
 
 
 
+    def on_group_selected(self, event):
+        """Handle group selection from the list and display all screenshots for the group in one scrollable tab."""
+        selected_group = self.group_list.GetStringSelection()
+        if not selected_group:
+            return
+
+        self.current_group = selected_group
+
+        # Clear the tabs in the notebook
+        self.clear_tabs()
+
+        # Ensure the scrollable panel exists for the group
+        group_tab = wx.ScrolledWindow(self.notebook)
+        group_tab.SetScrollRate(10, 10)
+        group_tab_sizer = wx.BoxSizer(wx.VERTICAL)
+        group_tab.SetSizer(group_tab_sizer)
+
+        # Add screenshots for the selected group
+        if selected_group in self.screenshot_groups:
+            for bitmap in self.screenshot_groups[selected_group]:
+                # Add each screenshot to the scrollable panel
+                canvas = wx.StaticBitmap(group_tab, bitmap=bitmap)
+                group_tab_sizer.Add(canvas, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Add the group tab to the notebook
+        self.notebook.AddPage(group_tab, f"Group: {selected_group}")
+        group_tab.Layout()
+        group_tab.FitInside()
+
+        # Set the new tab as the active tab
+        self.notebook.SetSelection(self.notebook.GetPageCount() - 1)
+
+        # Update the coordinates list for the selected group
+        self.coordinates_listbox.Clear()
+        if selected_group in self.screenshot_groups:
+            for i, _ in enumerate(self.screenshot_groups[selected_group], start=1):
+                self.coordinates_listbox.Append(f"coord_{i}")
+
+        # Update the status bar with the selected group
+        self.update_status(0,f"Selected group: '{selected_group}'")
+    def end_group(self):
+        """End the current group and finalize it."""
+        if self.current_group:
+            screenshots = len(self.screenshot_groups.get(self.current_group, []))
+            # Update the status bar with the group completion message
+            self.update_status(0,
+                f"Group '{self.current_group}' finalized with {screenshots} screenshots!"
+            )
+            self.current_group = None
+        else:
+            # Update the status bar with an error message
+            self.update_status(0,"No group is currently active.")
 
     def on_coordinates_selected(self, pil_image, thumbnail, coordinates):
         """Handle the selection and add new coordinates."""
@@ -1444,42 +1303,14 @@ class CoordinatesPanel(wx.Panel):
         self.update_status(0,f"Added and toggled new coordinates as '{new_label}'")
         wx.CallAfter(self.take_single_screenshot)
 
-
-
-
-
-
-
-    def clear_tabs(self):
-        """Clear all tabs in the notebook."""
-        while self.notebook.GetPageCount() > 0:
-            self.notebook.DeletePage(0)
-
-    def add_screenshot_tab(self, bitmap, label=None):
-        """Add a new tab with a screenshot."""
-        panel = wx.Panel(self.notebook)
-        sizer = wx.BoxSizer(wx.VERTICAL)
-
-        # Display screenshot in a static bitmap
-        canvas = wx.StaticBitmap(panel, bitmap=bitmap)
-        sizer.Add(canvas, 1, wx.EXPAND | wx.ALL, 5)
-
-        panel.SetSizer(sizer)
-        label = label or f"Screenshot {self.notebook.GetPageCount() + 1}"
-        self.notebook.AddPage(panel, label)
-        self.notebook.SetSelection(self.notebook.GetPageCount() - 1)
-
-    def add_list_item(self, item_name):
-        """Add an item to the group list."""
-        self.group_list.Append(item_name)
-        self.group_list.SetSelection(self.group_list.GetCount() - 1)
-
     def take_single_screenshot(self):
         global is_autoexec
         """Take screenshots for all toggled thumbnail buttons and display them in a single scrollable panel."""
         # Clear the coordinates list box for the new group
-        main_frame = self.GetParent()  # Reference to the main frame
-
+        main_frame = self.GetParent().GetParent().GetParent().GetParent()  # Reference to the main frame
+        coord_panel=self.GetParent().GetParent().GetParent()
+        notebook=coord_panel.notebook
+        webview_panel=coord_panel.webview_panel
         # Hide the main frame
         main_frame.Hide()
         main_frame.Iconize(True)
@@ -1516,11 +1347,11 @@ class CoordinatesPanel(wx.Panel):
             # Ensure the scrollable panel exists for the group
             if not hasattr(self, 'single_screenshot_tab') or self.single_screenshot_tab is None:
                 # Create a new scrollable tab
-                self.single_screenshot_tab = wx.ScrolledWindow(self.notebook)
+                self.single_screenshot_tab = wx.ScrolledWindow(notebook)
                 self.single_screenshot_tab.SetScrollRate(10, 10)
                 self.single_screenshot_tab_sizer = wx.BoxSizer(wx.VERTICAL)
                 self.single_screenshot_tab.SetSizer(self.single_screenshot_tab_sizer)
-                self.notebook.AddPage(self.single_screenshot_tab, f"Single Screenshots ({group_name})")
+                notebook.AddPage(self.single_screenshot_tab, f"Single Screenshots ({group_name})")
             else:
                 # Clear the existing content safely
                 for child in self.single_screenshot_tab_sizer.GetChildren():
@@ -1539,7 +1370,7 @@ class CoordinatesPanel(wx.Panel):
                         base64_image = self.bitmap_to_base64(bitmap)
 
                         # Update the WebView to display the image
-                        self.webview_panel.add_image_as_log_entry(base64_image)
+                        webview_panel.add_image_as_log_entry(base64_image)
                         
                     # Add screenshot to the scrollable panel
                     canvas = wx.StaticBitmap(self.single_screenshot_tab, bitmap=bitmap)
@@ -1559,7 +1390,7 @@ class CoordinatesPanel(wx.Panel):
             self.single_screenshot_tab.FitInside()
 
             # Set the tab with screenshots as the active tab
-            self.notebook.SetSelection(self.notebook.GetPageCount() - 1)
+            notebook.SetSelection(notebook.GetPageCount() - 1)
 
             # Update the status bar
             self.update_status(0,
@@ -1569,24 +1400,21 @@ class CoordinatesPanel(wx.Panel):
         finally:
             self.show_frame(main_frame)  # Show the main frame again
 
-        webview_panel = self.webview_panel
+        #webview_panel = self.webview_panel
         assert webview_panel is not None, "WebViewPanel is not available!"
         assert webview_panel.webview is not None, "WebView is not available!"
         assert webview_panel.image_data is not None , "Image data is not available!"
         #self.trigger_image_description(pil_image, thumbnail, coordinates)
         # At the end of the try block, right after self.show_frame(main_frame):
         if is_autoexec:
-            wx.CallAfter(self.webview_panel.on_ask_model_button_click, None)
-
-
+            wx.CallAfter(webview_panel.on_ask_model_button_click, None)
     def bitmap_to_base64(self, bitmap):
         """Convert a wx.Bitmap to a base64-encoded PNG image."""
         image = bitmap.ConvertToImage()
         stream = io.BytesIO()
         image.SaveFile(stream, wx.BITMAP_TYPE_PNG)
         base64_image = base64.b64encode(stream.getvalue()).decode('utf-8')
-        return base64_image
-        
+        return base64_image            
     def show_frame(self,main_frame):
 
         # Show the main frame again
@@ -1598,10 +1426,39 @@ class CoordinatesPanel(wx.Panel):
 
 
 
+                        
+    def on_coordinates_listbox_selection(self, event):
+        """Handle selection of an item in the coordinates list control."""
+        selected_index = self.coordinates_listbox.GetSelection()
+        if selected_index == wx.NOT_FOUND:
+            return  # No selection made
+
+        # Get the corresponding notebook tab
+        current_tab_index = self.notebook.GetSelection()
+        if current_tab_index == wx.NOT_FOUND:
+            return  # No active tab
+
+        current_tab = self.notebook.GetPage(current_tab_index)
+        if not isinstance(current_tab, wx.ScrolledWindow):
+            return  # Ensure the tab is a scrollable panel
+
+        # Scroll to the selected canvas
+        selected_canvas = current_tab.GetChildren()[selected_index]
+        if isinstance(selected_canvas, wx.StaticBitmap):
+            # Ensure the canvas is visible
+            x, y = selected_canvas.GetPosition()
+            current_tab.Scroll(x // 10, y // 10)  # Scroll to the canvas position (scaled by scroll rate)
+            selected_canvas.SetFocus()  # Optional: Set focus to the canvas
+
+            # Update status bar
+            self.update_status(0,f"Scrolled to coordinate {selected_index + 1}")
 
 
+    def update_status(self, field, message):
+        self.GetParent().GetParent().GetParent().update_status(field, message)
     def take_group_screenshot(self):
         """Start a new group or add a screenshot to the current group."""
+        
         if self.current_group is None:
             # Start a new group if no active group exists
             group_name = f"Group {len(self.screenshot_groups) + 1}"
@@ -1624,22 +1481,6 @@ class CoordinatesPanel(wx.Panel):
         parent_frame.panel.update_status(0,
             f"Added screenshot to '{self.current_group}'. Total: {len(self.screenshot_groups[self.current_group])}"
         )
-
-
-    def end_group(self):
-        """End the current group and finalize it."""
-        if self.current_group:
-            screenshots = len(self.screenshot_groups.get(self.current_group, []))
-            # Update the status bar with the group completion message
-            self.update_status(0,
-                f"Group '{self.current_group}' finalized with {screenshots} screenshots!"
-            )
-            self.current_group = None
-        else:
-            # Update the status bar with an error message
-            self.update_status(0,"No group is currently active.")
-
-
     def take_screenshot(self, coordinates, return_bitmap=False):
         """Take a screenshot and optionally return the bitmap."""
         import mss
@@ -1659,6 +1500,193 @@ class CoordinatesPanel(wx.Panel):
 
             if return_bitmap:
                 return bitmap
+    def add_group(self, group_name):
+        
+        self.update_status(2, f"Current Group: {group_name}")        
+        """Add a new screenshot group."""
+        if group_name in self.screenshot_groups:
+            # Avoid duplicate groups
+            self.update_status(0,f"Group '{group_name}' already exists.")
+            return
+
+        # Create a new group and add it to the list
+        self.screenshot_groups[group_name] = []
+        self.add_list_item(group_name)
+        self.current_group = group_name
+
+        # Update the status bar
+        self.update_status(0,f"Started new group: '{group_name}'")            
+    def add_list_item(self, item_name):
+        """Add an item to the group list."""
+        self.group_list.Append(item_name)
+        self.group_list.SetSelection(self.group_list.GetCount() - 1)
+class CoordinatesPanel(wx.Panel):
+    def __init__(self, parent, coordinates, callback, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+
+        self.coordinates = coordinates
+        self.callback = callback
+        
+        self.current_group = None
+        self.current_coordinates = None
+
+        # Main horizontal sizer for overall layout
+        # Main horizontal layout with splitter
+        self.hsplitter = wx.SplitterWindow(self)
+
+        self.vsplitter = wx.SplitterWindow(self.hsplitter)
+        self.hpanel=hpanel=ControlPanel(self.vsplitter)
+    
+        if 1:
+
+            # Set the initial button state
+            
+
+            # Set the initial button state
+            
+                    
+            hpanel.coord_btn.Bind(wx.EVT_BUTTON, self.open_overlay)
+            hpanel.save_btn.Bind(wx.EVT_BUTTON, self.save_screenshot)
+            hpanel.show_webview_btn.Bind(wx.EVT_BUTTON, self.on_show_webview)  
+            #hpanel.group_screenshot_btn.Bind(wx.EVT_BUTTON, lambda evt: self.take_group_screenshot())
+
+            self.Bind(wx.EVT_SIZE, self.on_size) # Allocate 75% to the notebook
+
+        if 1:
+
+
+            # Left panel for the notebook
+            self.notebook_panel = wx.Panel(self.vsplitter)
+            notebook_sizer = wx.BoxSizer(wx.VERTICAL)
+
+            self.notebook = wx.Notebook(self.notebook_panel)
+            self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_notebook_page_changed)
+            notebook_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
+
+            self.notebook_panel.SetSizer(notebook_sizer)
+            # Right panel for WebView
+
+        if 1:
+            # Configure splitter
+            self.vsplitter.SplitHorizontally(hpanel, self.notebook_panel)
+
+            # Set the sash position to ensure WebView is visible initially
+            self.vsplitter.SetSashPosition(550, redraw=True)  # Allocate 50% to both
+            #self.splitter.SetMinimumPaneSize(int(self.GetSize().x-150)) 
+            self.vsplitter.Layout() 
+
+        if 1:
+            self.webview_panel = WebViewPanel(self.hsplitter)
+            self.hsplitter.SplitVertically(self.vsplitter, self.webview_panel)
+            # Set the sash position to ensure WebView is visible initially
+            self.hsplitter.SetSashPosition(550, redraw=True)  # Allocate 50% to both
+            #self.splitter.SetMinimumPaneSize(int(self.GetSize().x-150)) 
+            self.hsplitter.Layout()             
+
+        main_vbox   = wx.BoxSizer(wx.VERTICAL)
+        main_vbox.Add(self.hsplitter, 1, wx.EXPAND | wx.ALL, 5)
+
+        self.SetSizer(main_vbox)
+
+
+    def on_show_webview(self, event=None, button=None):
+        """Toggle the splitter sash position and update the button label."""
+        if not button:  # Use the button reference if provided
+            button = event.GetEventObject() if event else self.hpanel.show_webview_btn
+
+        current_label = button.GetLabel()
+        total_width = self.GetSize().x
+
+        # Determine the new sash position based on the current label
+        if current_label == "Show Webview":
+            # Move sash to allocate more space to WebView
+            new_position = 150  # Minimal space for notebook
+            button.SetLabel("Hide Webview")
+            self.update_status(0,"WebView panel shown.")
+        else:
+            # Move sash to allocate more space to the notebook
+            new_position = total_width - 150  # Minimal space for WebView
+            button.SetLabel("Show Webview")
+            self.update_status(0,"WebView panel minimized.")
+
+        # Adjust the sash position
+        self.hsplitter.SetSashPosition(new_position, redraw=True)
+        self.hsplitter.Layout()
+        self.Layout()
+    def open_overlay(self, event):
+        self.Hide()
+        self.callback()        
+    def on_size(self, event):
+        """Adjust the sash position after the panel is resized."""
+        self.hsplitter.SetSashPosition(int(self.GetSize().x * 0.75))  # Allocate 75% to the notebook
+        self.Unbind(wx.EVT_SIZE)  # Unbind to avoid repeated adjustments
+        event.Skip()
+
+
+
+
+
+
+
+    def on_notebook_page_changed(self, event):
+        """Update the coordinates listbox when the notebook tab changes."""
+        self.coordinates_listbox.Clear()
+
+        # Get the current group name
+        current_tab_index = self.notebook.GetSelection()
+        if current_tab_index == wx.NOT_FOUND:
+            return
+
+        tab_label = self.notebook.GetPageText(current_tab_index)
+        group_name = tab_label.split(" ")[-1].strip("()")
+
+        if group_name in self.screenshot_groups:
+            for i, _ in enumerate(self.screenshot_groups[group_name], start=1):
+                self.coordinates_listbox.Append(f"coord_{i}")
+
+        event.Skip()  # Allow the default behavior
+
+
+
+
+
+
+
+
+
+
+
+    def clear_tabs(self):
+        """Clear all tabs in the notebook."""
+        while self.notebook.GetPageCount() > 0:
+            self.notebook.DeletePage(0)
+
+    def add_screenshot_tab(self, bitmap, label=None):
+        """Add a new tab with a screenshot."""
+        panel = wx.Panel(self.notebook)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Display screenshot in a static bitmap
+        canvas = wx.StaticBitmap(panel, bitmap=bitmap)
+        sizer.Add(canvas, 1, wx.EXPAND | wx.ALL, 5)
+
+        panel.SetSizer(sizer)
+        label = label or f"Screenshot {self.notebook.GetPageCount() + 1}"
+        self.notebook.AddPage(panel, label)
+        self.notebook.SetSelection(self.notebook.GetPageCount() - 1)
+
+
+
+
+        
+
+
+
+
+
+
+
+
 
 
 
@@ -1708,74 +1736,18 @@ class CoordinatesPanel(wx.Panel):
 
 
 
-    def on_group_selected(self, event):
-        """Handle group selection from the list and display all screenshots for the group in one scrollable tab."""
-        selected_group = self.group_list.GetStringSelection()
-        if not selected_group:
-            return
-
-        self.current_group = selected_group
-
-        # Clear the tabs in the notebook
-        self.clear_tabs()
-
-        # Ensure the scrollable panel exists for the group
-        group_tab = wx.ScrolledWindow(self.notebook)
-        group_tab.SetScrollRate(10, 10)
-        group_tab_sizer = wx.BoxSizer(wx.VERTICAL)
-        group_tab.SetSizer(group_tab_sizer)
-
-        # Add screenshots for the selected group
-        if selected_group in self.screenshot_groups:
-            for bitmap in self.screenshot_groups[selected_group]:
-                # Add each screenshot to the scrollable panel
-                canvas = wx.StaticBitmap(group_tab, bitmap=bitmap)
-                group_tab_sizer.Add(canvas, 0, wx.EXPAND | wx.ALL, 5)
-
-        # Add the group tab to the notebook
-        self.notebook.AddPage(group_tab, f"Group: {selected_group}")
-        group_tab.Layout()
-        group_tab.FitInside()
-
-        # Set the new tab as the active tab
-        self.notebook.SetSelection(self.notebook.GetPageCount() - 1)
-
-        # Update the coordinates list for the selected group
-        self.coordinates_listbox.Clear()
-        if selected_group in self.screenshot_groups:
-            for i, _ in enumerate(self.screenshot_groups[selected_group], start=1):
-                self.coordinates_listbox.Append(f"coord_{i}")
-
-        # Update the status bar with the selected group
-        self.update_status(0,f"Selected group: '{selected_group}'")
 
 
 
-    def add_group(self, group_name):
-        
-        self.update_status(2, f"Current Group: {group_name}")        
-        """Add a new screenshot group."""
-        if group_name in self.screenshot_groups:
-            # Avoid duplicate groups
-            self.update_status(0,f"Group '{group_name}' already exists.")
-            return
 
-        # Create a new group and add it to the list
-        self.screenshot_groups[group_name] = []
-        self.add_list_item(group_name)
-        self.current_group = group_name
 
-        # Update the status bar
-        self.update_status(0,f"Started new group: '{group_name}'")
 
 
 
     def update_coordinates(self, new_coordinates):
         self.coordinates = new_coordinates
 
-    def open_overlay(self, event):
-        self.Hide()
-        self.callback()
+
     def update_status(self, field, message):
         status_bar=self.GetParent().status_bar
         """Update a specific field in the status bar."""
@@ -1988,8 +1960,8 @@ class ScreenshotApp(wx.App):
             return
 
         # Call the on_coordinates_selected method directly to handle the thumbnail addition
-        if hasattr(self.coordinates_frame.panel, 'on_coordinates_selected'):
-            self.coordinates_frame.panel.on_coordinates_selected(pil_image, thumbnail, coordinates)
+        if hasattr(self.coordinates_frame.panel.hpanel, 'on_coordinates_selected'):
+            self.coordinates_frame.panel.hpanel.on_coordinates_selected(pil_image, thumbnail, coordinates)
 
 
         
