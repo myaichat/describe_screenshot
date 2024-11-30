@@ -25,7 +25,9 @@ is_mock=False
 is_autoexec=True
 def describe_screenshot(prompt, model, image_data, append_callback=None, history=False, mock=False, request_id=1):
     global conversation_history, client
-    
+    #print(f"describe_screenshot: prompt={prompt}, model={model}, image_data={len(image_data)}, history={history}, mock={mock}, request_id={request_id}")
+    #print("Conversation history length:", len(conversation_history))
+
     try:
         ch = conversation_history if history else []
       
@@ -68,6 +70,7 @@ Initializing App
                 wx.CallAfter(append_callback, 'new line \n', is_streaming=True)
         else:
             # Real API call
+            #pp(ch)
             response = client.chat.completions.create(
                 model=model,
                 messages=ch,
@@ -223,6 +226,7 @@ class WebViewPanel(wx.Panel):
         
         # Set focus handler
         #self.webview.Bind(wx.EVT_SET_FOCUS, self.on_webview_focus)
+        self.was_reset=False
 
     def _on_webview_focus(self, event):
         print("WebView received focus")
@@ -323,24 +327,23 @@ class WebViewPanel(wx.Panel):
             wx.TheClipboard.Close()
 
     def reset_state(self):
-        """Reset processing state and content without visible flickering."""
-        #self.Freeze()
         try:
             print("Resetting state")
-            
+            self.was_reset = False
             self.processing = False
             self.ask_model_button.Enable()
             self.active_threads = [t for t in self.active_threads if t.is_alive()]
             
-            # Create new WebView before destroying old one
+            # Create new WebView
             new_webview = wx.html2.WebView.New(self.splitter)
             new_webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
             new_webview.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_webview)
-            
-            # Set content in new WebView
-            self.set_initial_content(new_webview)
-            
+            print("222")
+
+            loading_complete = False
             def on_loaded(evt):
+                nonlocal loading_complete
+                print("444 on_loaded")
                 try:
                     if hasattr(self, 'image_data') and self.image_data:
                         js_script = """
@@ -367,8 +370,9 @@ class WebViewPanel(wx.Panel):
                                 elif entry['role'] == 'assistant':
                                     self.add_assistant_message_to_webview(new_webview, entry['content'])
                 finally:
-                    #self.Thaw()
-                    pass
+                    print("555")
+                    self.was_reset = True
+                    loading_complete = True
                                 
                 # Only after content is loaded, swap the WebViews
                 old_webview = self.webview
@@ -378,14 +382,28 @@ class WebViewPanel(wx.Panel):
                 
             new_webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, on_loaded)
             
+            # Set content and wait for loading
+            self.set_initial_content(new_webview)
+            print("333")
+
+            # Add a timeout mechanism
+            timeout = 50  # 5 seconds (50 * 100ms)
+            while not loading_complete and timeout > 0:
+                wx.MilliSleep(100)
+                wx.Yield()
+                timeout -= 1
+                
+            if not loading_complete:
+                print("WARNING: WebView loading timed out")
+                
             self.prompt_text_ctrl.SetValue("Describe this image")
-            
-            parent_frame = self.GetParent().GetParent()
+            print("444", self.was_reset)
+            parent_frame = self.GetParent().GetParent().GetParent()
+            print(parent_frame)
             if hasattr(parent_frame, 'status_bar'):
-                parent_frame.panel.update_status(0, "Processing state and content reset")
-    
+                parent_frame.panel.update_status(0, f"Processing state and content reset, {self.was_reset}")
+
         except Exception as e:
-            wx.Thaw()
             print(f"Error in reset_state: {e}")
             raise
 
@@ -476,6 +494,7 @@ class WebViewPanel(wx.Panel):
             self.reset_webview()
             self.request_counter = 0  
     def reset_webview(self):
+        e()
         global conversation_history
         conversation_history = []
         """Clear WebView content and re-add the thumbnail."""
