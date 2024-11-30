@@ -729,6 +729,7 @@ class WebViewPanel(wx.Panel):
             wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
             
     def on_ask_model_button_click(self, event):
+        print("-------------------------on_ask_model_button_click")
         if self.processing:
             return
 
@@ -1406,6 +1407,7 @@ class ControlPanel(wx.Panel):
         assert webview_panel.image_data is not None , "Image data is not available!"
         #self.trigger_image_description(pil_image, thumbnail, coordinates)
         # At the end of the try block, right after self.show_frame(main_frame):
+
         if is_autoexec:
             wx.CallAfter(webview_panel.on_ask_model_button_click, None)
     def bitmap_to_base64(self, bitmap):
