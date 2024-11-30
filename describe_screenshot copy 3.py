@@ -16,9 +16,6 @@ import sys
 import  openai
 import base64
 import io 
-import queue
-import wx.lib.newevent
-(StreamEvent, EVT_STREAM) = wx.lib.newevent.NewEvent()
 
 #MODEL='gpt-4o-mini'
 client=openai.OpenAI()
@@ -31,7 +28,7 @@ def describe_screenshot(prompt, model, image_data, append_callback=None, history
     print(f"describe_screenshot: prompt={prompt}, model={model}, image_data={len(image_data)}, history={history}, mock={mock}, request_id={request_id}")
     print("Conversation history length:", len(conversation_history))
 
-    if 1:
+    try:
         ch = conversation_history if history else []
       
         if 1:
@@ -55,44 +52,55 @@ def describe_screenshot(prompt, model, image_data, append_callback=None, history
         if mock:
             # Simulated response for debugging purposes
             assistant_response = r"""
-        test response 1
-        test response 2
-        test response 3
-        test response 4
-        test response 5
-        test response 6
-        test response 7
-        test response 8
-        test response 9
-        """
+RecursionError: maximum recursion depth exceeded
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot>
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
+Initializing App
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
+
+"""         
             for line in assistant_response.splitlines():
-                if line.strip():  # Skip empty lines
+                for word in line.split():
                     if append_callback:
-                        wx.CallAfter(append_callback, line + '\n', is_streaming=True)
-                time.sleep(0.1)  # Simulate delay between messages
+                        wx.CallAfter(append_callback, f'{word} ', is_streaming=True)
+                    time.sleep(0.02)
+                wx.CallAfter(append_callback, 'new line \n', is_streaming=True)
         else:
             # Real API call
-            #pp(ch)
+            pp(ch)
             response = client.chat.completions.create(
                 model=model,
                 messages=ch,
-                stream=True  # Enable streaming
+                stream=True
             )
 
             assistant_response = ""
             for chunk in response:
                 if hasattr(chunk.choices[0].delta, 'content'):
                     content = chunk.choices[0].delta.content
-                    print(content, end="")  # Debug output
+                    print(content, end="")
                     if content:
                         assistant_response += content
-                        wx.CallAfter(append_callback, content, True)  # Stream each chunk to the UI
+                        if append_callback:
+                            wx.CallAfter(append_callback, content, is_streaming=True)
 
-            # Append the final assistant response to the history if history mode is enabled
-            if history:
-                ch.append({"role": "assistant", "content": assistant_response})
+            # Always append the assistant's response to conversation history when in history mode
+        if history:
+            ch.append({"role": "assistant", "content": assistant_response})
 
+    except Exception as e:
+        print(f"Error in describe_screenshot: {e}")
+        if append_callback:
+            append_callback(f"Error: {str(e)}", is_streaming=False)
+        raise
 
+    finally:
+        #client.close()
+        #wx.CallAfter(self.webview_panel.ask_model_button.Enable)
+        pass
 
 
 
@@ -103,18 +111,13 @@ import io
 class WebViewPanel(wx.Panel):
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
-        
-        # Add queue and timer for content streaming
-        self.content_queue = queue.Queue()
-        self.stream_timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.on_stream_timer, self.stream_timer)
-        
-        # Rest of your existing initialization code...
+
+        # Initialize member variables
         self.active_threads = []
         self.is_collapsed = False
         self.image_data = None
-        self.request_counter = 0
-        self.processing = False
+        self.request_counter = 0  # Add a counter for request IDs
+        self.processing = False  # Add a flag to track processing state
         self.auto_scroll = True
 
         # Create a splitter window
@@ -535,68 +538,34 @@ class WebViewPanel(wx.Panel):
 
 
     def _stream_model_response(self, user_message, request_id):
-        """Stream model response with simplified event handling."""
-        print(f"Processing request {request_id}")
+        """Handle streaming responses with improved state management."""
         try:
-            history = self.history_button.GetValue()
-            mock = self.mock_button.GetValue()
-            
-            if not self.webview:
-                raise Exception("WebView not available")
+            # Only proceed if we're not already processing
+            if self.processing:
+                return
                 
+            history = self.history_button.GetValue()
             if not history and not self.image_data:
-                raise Exception("No image data available")
+                wx.CallAfter(wx.MessageBox,
+                            "No image data found to send to the model.",
+                            "Error",
+                            wx.OK | wx.ICON_ERROR)
+                return
 
-            # Use direct WebView update without events
             def append_callback(content, is_streaming):
-                """Directly update WebView content without events."""
-                if not content:
-                    return
-                    
-                try:
-                    # Function to safely update WebView
-                    def safe_update():
-                        escaped_content = (content
-                            .replace('\\', '\\\\')
-                            .replace("'", r"\'")
-                            .replace('"', r'\"')
-                            .replace('\n', r'\n')
-                            .replace('\t', r'\t'))
-
-                        js_code = f"""
-                            try {{
-                                var responseRow = document.getElementById("response-{request_id}");
-                                if (responseRow) {{
-                                    var responseDiv = responseRow.querySelector(".model-response");
-                                    if (responseDiv) {{
-                                        responseDiv.textContent += "{escaped_content}";
-                                    }}
-                                    if ({str(self.auto_scroll).lower()}) {{
-                                        responseRow.scrollIntoView({{behavior: "smooth", block: "end"}});
-                                    }}
-                                }}
-                            }} catch (error) {{
-                                console.error("Error in append_callback:", error);
-                            }}
-                        """
-                        if self and self.webview:
-                            self.webview.RunScript(js_code)
-
-                    # Ensure WebView update happens in main thread without recursion
-                    if wx.IsMainThread():
-                        safe_update()
-                    else:
-                        wx.CallAfter(safe_update)
-                        
-                except Exception as e:
-                    print(f"Error updating content: {e}")
+                if content:
+                    # Use CallAfter to ensure thread safety
+                    wx.CallAfter(self._append_response, request_id, content, is_streaming)
 
             model = self.notebook.get_selected_models()['OpenAI']
+            mock = self.mock_button.GetValue()
             
+            # Clear existing conversation if not in history mode
             if not history:
                 global conversation_history
                 conversation_history = []
                 
+            # Process the response
             describe_screenshot(
                 user_message, 
                 model, 
@@ -608,54 +577,17 @@ class WebViewPanel(wx.Panel):
             )
 
         except Exception as e:
-            print(f"Error in stream_model_response for request {request_id}: {e}")
+            print(f"Error in _stream_model_response for request {request_id}: {e}")
+            wx.CallAfter(self._append_response,
+                        request_id,
+                        f"\n\nError: {str(e)}",
+                        False)
         finally:
-            def cleanup():
-                if self and hasattr(self, 'processing'):
-                    self.processing = False
-                    if hasattr(self, 'ask_model_button'):
-                        self.ask_model_button.Enable()
-            wx.CallAfter(cleanup)
-
-
-    def on_stream_timer(self, event):
-        """Process queued content on timer tick."""
-        try:
-            while not self.content_queue.empty():
-                request_id, content, is_streaming = self.content_queue.get_nowait()
-                self._append_response(request_id, content, is_streaming)
-
-            # Stop the timer if there is no more content to process
-            if self.content_queue.empty():
-                self.stream_timer.Stop()
-
-        except queue.Empty:
-            pass
-        except Exception as e:
-            print(f"Error in stream timer: {e}")
-
-
-    def cleanup_request(self, request_id):
-        """Clean up request and stop timer if no more requests."""
-        #print(f"Cleaning up request {request_id}")
-        try:
-            self.processing = False
-            self.ask_model_button.Enable()
-            
-            # Clear queue
-            while not self.content_queue.empty():
-                try:
-                    self.content_queue.get_nowait()
-                except queue.Empty:
-                    break
-                    
-            # Stop timer if no more requests
-            if not self.processing:
-                self.stream_timer.Stop()
-                
-        except Exception as e:
-            print(f"Error in cleanup: {e}")
-            self.reset_state()
+            current_thread = threading.current_thread()
+            if current_thread in self.active_threads:
+                wx.CallAfter(self._remove_thread, current_thread)
+                wx.CallAfter(self.ask_model_button.Enable)
+                self.processing = False
 
     def _remove_thread(self, thread):
         """Safely remove a thread from active threads."""
@@ -711,116 +643,141 @@ class WebViewPanel(wx.Panel):
 
 
     def _append_response(self, request_id, content, is_streaming):
-        """Append content to the WebView in real-time."""
-        if not content or not self.webview:
+        """Safely append response content with improved error handling."""
+        if not content:
             return
 
         try:
-            # Replace newlines with <br> for HTML rendering
-            escaped_content = content.replace("\n", "<br>").replace('"', '&quot;').replace("'", "&apos;")
+            if "<script>" in content:
+                raise Exception("Invalid content detected!")
+
+            escaped_content = (content
+                .replace('\\', '\\\\')
+                .replace("'", r"\'")
+                .replace('"', r'\"')
+                .replace('\n', r'\n')
+                .replace('\t', r'\t'))
 
             js_code = f"""
                 try {{
                     var responseRow = document.getElementById("response-{request_id}");
-                    if (!responseRow) {{
-                        responseRow = document.createElement('tr');
-                        responseRow.id = "response-{request_id}";
-                        var responseCell = document.createElement('td');
-                        var responseDiv = document.createElement('div');
-                        responseDiv.className = 'model-response';
-                        responseDiv.innerHTML = "";  // Initialize empty
-                        responseCell.appendChild(responseDiv);
-                        responseRow.appendChild(responseCell);
-                        document.getElementById('log-container').appendChild(responseRow);
-                    }}
-                    var responseDiv = responseRow.querySelector('div');
-                    responseDiv.innerHTML += `{escaped_content}`;  // Append new content
-                    if ({str(self.auto_scroll).lower()}) {{
-                        responseRow.scrollIntoView({{behavior: "smooth", block: "end"}});
+                    if (responseRow) {{
+                        var responseDiv = responseRow.querySelector(".model-response");
+                        if (responseDiv) {{
+                            responseDiv.textContent += "{escaped_content}";
+                            if (!{str(is_streaming).lower()}) {{
+                                formatCodeBlocks(responseDiv);
+                            }}
+                        }}
+                        if ({str(self.auto_scroll).lower()}) {{
+                            responseRow.scrollIntoView({{behavior: "smooth", block: "end"}});
+                        }}
                     }}
                 }} catch (error) {{
-                    console.error("Error appending response:", error);
+                    console.error("Error in _append_response:", error);
                 }}
             """
             self.webview.RunScript(js_code)
+
         except Exception as e:
-            print(f"Error in _append_response: {e}")
-
-
-
-
-
-
-
-
+            print(f"Error appending response: {e}")
+            if not isinstance(e, RecursionError):
+                wx.CallAfter(wx.MessageBox,
+                    f"Error appending response: {str(e)}",
+                    "Error",
+                    wx.OK | wx.ICON_ERROR)
  
             
     def on_ask_model_button_click(self, event):
-        """Handle ask model button click with real API streaming."""
+        """Handle ask model button click with improved debug logging."""
+        print("-------------------------on_ask_model_button_click")
         if self.processing:
-            return  # Ignore if already processing
-
-        self.processing = True
-        self.ask_model_button.Disable()
-
-        user_message = self.prompt_text_ctrl.GetValue().strip()
-        if not user_message:
-            wx.MessageBox("Please enter a prompt before asking the model.", "Error", wx.OK | wx.ICON_ERROR)
-            self.processing = False
-            self.ask_model_button.Enable()
+            print("Already processing - ignoring request")
             return
 
-        self.request_counter += 1
-        request_id = self.request_counter
-        self._create_log_entry(user_message, request_id)
+        try:
+            # Reset any stale state
+            self.processing = False
+            self.ask_model_button.Enable()
+            
+            user_message = self.prompt_text_ctrl.GetValue().strip()
+            if not user_message:
+                wx.MessageBox("Please enter a prompt before asking the model.", 
+                            "Input Required", 
+                            wx.OK | wx.ICON_WARNING)
+                return
 
-        # Start streaming in a thread
-        thread = threading.Thread(
-            target=self._stream_model_response,
-            args=(user_message, request_id),
-            daemon=True,
-        )
-        thread.start()
-        self.stream_timer.Start(100)  # Process every 100ms
+            # Set processing state
+            print("Setting processing state")
+            self.processing = True
+            self.ask_model_button.Disable()
 
+            # Create new request
+            self.request_counter += 1 
+            request_id = self.request_counter
+            print(f"Creating request {request_id}")
+            
+            # Create log entry
+            wx.CallAfter(self._create_log_entry, user_message, request_id)
+            
+            # Start thread after log entry is created
+            def start_thread():
+                thread = threading.Thread(
+                    target=self._stream_model_response,
+                    args=(user_message, request_id),
+                    daemon=True,
+                    name=f"ModelThread-{request_id}"
+                )
+                self.active_threads = [t for t in self.active_threads if t.is_alive()]
+                self.active_threads.append(thread)
+                print(f"Starting thread for request {request_id}")
+                thread.start()
+                
+            wx.CallAfter(start_thread)
 
+        except Exception as e:
+            print(f"Error in ask_model_button_click: {e}")
+            self.processing = False
+            self.ask_model_button.Enable()
+            wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
 
 
     def _stream_model_response(self, user_message, request_id):
-        """Stream model response with improved error handling."""
-        print(f"Processing request {request_id}")
+        """Handle streaming responses with improved error handling."""
+        print(f"Entering _stream_model_response for request {request_id}")
         try:
             history = self.history_button.GetValue()
             mock = self.mock_button.GetValue()
-            model = self.notebook.get_selected_models()['OpenAI']
-
-            if not self.webview:
-                raise Exception("WebView not available")
-
+            
+            print(f"Request {request_id} - History: {history}, Mock: {mock}")
+            
             if not history and not self.image_data:
-                raise Exception("No image data available")
+                print(f"Request {request_id} - No image data available")
+                wx.CallAfter(wx.MessageBox,
+                            "No image data found to send to the model.",
+                            "Error",
+                            wx.OK | wx.ICON_ERROR)
+                return
 
-            # Define append_callback within _stream_model_response
             def append_callback(content, is_streaming):
-                """
-                Handles the content streaming for the WebView.
-                - `content`: The chunk of text to append.
-                - `is_streaming`: Indicates if streaming is still ongoing.
-                """
                 if content:
-                    # Add content to the content queue for real-time processing
-                    self.content_queue.put((request_id, content, is_streaming))
+                    print(f"Appending content for request {request_id}")
+                    wx.CallAfter(self._append_response, request_id, content, is_streaming)
 
-                    # Start the timer to ensure the queue gets processed
-                    if not self.stream_timer.IsRunning():
-                        self.stream_timer.Start(100)  # Process every 100ms
-
-            # Pass the callback to describe_screenshot
+            model = self.notebook.get_selected_models()['OpenAI']
+            print(f"Making API call for request {request_id} with model {model}")
+            
+            # Always clear conversation history for new requests
+            global conversation_history
+            if not history:
+                print(f"Request {request_id} - Clearing conversation history")
+                conversation_history = []
+                
             describe_screenshot(
                 user_message, 
                 model, 
                 self.image_data, 
-                append_callback=append_callback,  # Pass this callback
+                append_callback=append_callback,
                 history=history,
                 mock=mock,
                 request_id=request_id
@@ -828,21 +785,67 @@ class WebViewPanel(wx.Panel):
 
         except Exception as e:
             print(f"Error in _stream_model_response for request {request_id}: {e}")
+            wx.CallAfter(self._append_response,
+                        request_id,
+                        f"\n\nError: {str(e)}",
+                        False)
         finally:
-            wx.CallAfter(self._cleanup_request, request_id)
+            print(f"Completing request {request_id}")
+            def cleanup():
+                print(f"Cleaning up request {request_id}")
+                current_thread = threading.current_thread()
+                if current_thread in self.active_threads:
+                    self._remove_thread(current_thread)
+                self.processing = False
+                self.ask_model_button.Enable()
+                
+            wx.CallAfter(cleanup)
 
-
-    def _cleanup_request(self, request_id):
-        """Clean up after request completes."""
+    def _create_log_entry(self, user_message, request_id):
+        """Creates a new log entry with debug output."""
+        print(f"Creating log entry for request {request_id}")
         try:
-            self.processing = False
-            self.ask_model_button.Enable()
-            while not self.content_queue.empty():
-                self.content_queue.get_nowait()
-            if self.stream_timer.IsRunning():
-                self.stream_timer.Stop()
+            safe_message = user_message.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n')
+
+            js_script = f"""
+                (function() {{
+                    var table = document.getElementById('log-container');
+                    if (!table) {{
+                        console.error('Log container not found');
+                        return;
+                    }}
+
+                    // Create user message row
+                    var userRow = document.createElement('tr');
+                    userRow.id = 'user-{request_id}';
+                    var userCell = document.createElement('td');
+                    var userPrompt = document.createElement('div');
+                    userPrompt.className = 'user-prompt';
+                    userPrompt.textContent = 'User #{request_id}: {safe_message}';
+                    userCell.appendChild(userPrompt);
+                    userRow.appendChild(userCell);
+                    table.appendChild(userRow);
+
+                    // Create response row
+                    var responseRow = document.createElement('tr');
+                    responseRow.id = 'response-{request_id}';
+                    var responseCell = document.createElement('td');
+                    var responseDiv = document.createElement('div');
+                    responseDiv.className = 'model-response';
+                    responseCell.appendChild(responseDiv);
+                    responseRow.appendChild(responseCell);
+                    table.appendChild(responseRow);
+
+                    if ({str(self.auto_scroll).lower()}) {{
+                        table.scrollTop = table.scrollHeight;
+                    }}
+                }})();
+            """
+            print(f"Running script for request {request_id}")
+            self.webview.RunScript(js_script)
+
         except Exception as e:
-            print(f"Error in _cleanup_request: {e}")
+            print(f"Error creating log entry for request {request_id}: {e}")
 
     def add_image_as_log_entry(self, base64_image):
         self.image_data = base64_image  
@@ -862,7 +865,7 @@ class WebViewPanel(wx.Panel):
 
     def on_collapse_button_click(self, event):
        
-        #print ("on_collapse_button_click", self.is_collapsed, self.processing)  
+        print ("on_collapse_button_click", self.is_collapsed, self.processing)  
         """Toggle collapsing or expanding the button panel."""
         if self.is_collapsed:
             # Expand the button panel
@@ -880,7 +883,7 @@ class WebViewPanel(wx.Panel):
 
     def on_mouse_enter_webview(self, event):
         """Handle mouse entering the WebView."""
-        #print("Mouse entered WebView.", self.is_collapsed)
+        print("Mouse entered WebView.", self.is_collapsed)
         if  self.processing:
             print("on_mouse_enter_webview disabled due to current state.")
             return  
@@ -895,7 +898,7 @@ class WebViewPanel(wx.Panel):
 
     def on_mouse_enter_button_panel(self, event):
         """Handle mouse entering the bottom button panel."""
-        #print("Mouse entered Bottom Panel.", self.is_collapsed)
+        print("Mouse entered Bottom Panel.", self.is_collapsed)
         if  self.processing:
             print("on_mouse_enter_button_panel disabled due to current state.")
             return
@@ -922,7 +925,7 @@ class WebViewPanel(wx.Panel):
             return  # Do nothing if the mouse is still within the panel or its children
 
         # Otherwise, trigger the collapse
-        #print("Mouse left Bottom Panel.", self.is_collapsed)
+        print("Mouse left Bottom Panel.", self.is_collapsed)
         if not self.is_collapsed:
             self.on_collapse_button_click(None)  # Collapse WebView and expand Bottom Panel        
         event.Skip()
@@ -981,47 +984,17 @@ class WebViewPanel(wx.Panel):
             }
 
             .model-response {
-                font-family: monospace;
-                white-space: pre-wrap;
-                line-height: 1.5;
-                padding: 1em;
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                border-radius: 4px;
-            }
-
-            .line-item {
-                display: flex;
-                padding: 2px 0;
-            }
-
-            .bullet {
-                padding-right: 8px;
-                color: #d4d4d4;
-            }
-
-            .content {
-                flex: 1;
-            }
-
-            /* Preserve indentation for nested items */
-            .line-item {
-                padding-left: 20px;
-                text-indent: -20px;
-            }
-
-            .model-response .bullet-point {
-                display: block;
-                padding-left: 24px;
-                text-indent: -20px;
-                margin: 4px 0;
-                white-space: pre-wrap;
-            }
-
-            .model-response .text-line {
-                display: block;
-                margin: 4px 0;
-                white-space: pre-wrap;
+                position: relative;
+                padding: 16px;
+                margin: 8px 0;  /* Reduced from 16px to 8px */
+                border-left: 4px solid #2563eb;
+                background-color: #f8fafc;
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                font-size: 13px;
+                white-space: break-spaces;
+                word-wrap: break-word;
+                tab-size: 4;
+                -moz-tab-size: 4;
             }
 
             .model-response pre {
@@ -1032,17 +1005,30 @@ class WebViewPanel(wx.Panel):
                 color: #e2e8f0;
                 overflow-x: auto;
                 white-space: pre;
-                font-family: inherit;
             }
 
             .model-response code {
                 font-family: inherit;
-                background-color: #1e293b;
-                color: #e2e8f0;
-                padding: 2px 4px;
-                border-radius: 3px;
-                white-space: pre;
+                tab-size: 4;
+                -moz-tab-size: 4;
             }
+
+            table {
+                width: 100%;
+                border-collapse: separate;
+                border-spacing: 0;
+            }
+
+            td {
+                padding: 4px 8px;  /* Reduced top/bottom padding from 8px to 4px */
+                vertical-align: top;
+            }
+
+            /* Add spacing between response groups instead */
+            tr + tr {
+                margin-top: 16px;
+            }
+
 
             .code-block {
                 position: relative;
@@ -1056,7 +1042,6 @@ class WebViewPanel(wx.Panel):
                 margin: 0;
                 padding: 16px;
                 overflow-x: auto;
-                white-space: pre;
             }
         </style>
         </head>

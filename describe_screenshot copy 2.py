@@ -11,14 +11,11 @@ from include.Controls import MonitorSelectionDialog, ScreenshotOverlay,  Thumbna
 from include.Controls import ModelSelectionNotebook
 
 import sys
-#sys.setrecursionlimit(10000)
+sys.setrecursionlimit(10000)
 
 import  openai
 import base64
 import io 
-import queue
-import wx.lib.newevent
-(StreamEvent, EVT_STREAM) = wx.lib.newevent.NewEvent()
 
 #MODEL='gpt-4o-mini'
 client=openai.OpenAI()
@@ -28,10 +25,10 @@ is_mock=False
 is_autoexec=True
 def describe_screenshot(prompt, model, image_data, append_callback=None, history=False, mock=False, request_id=1):
     global conversation_history, client
-    print(f"describe_screenshot: prompt={prompt}, model={model}, image_data={len(image_data)}, history={history}, mock={mock}, request_id={request_id}")
-    print("Conversation history length:", len(conversation_history))
+    #print(f"describe_screenshot: prompt={prompt}, model={model}, image_data={len(image_data)}, history={history}, mock={mock}, request_id={request_id}")
+    #print("Conversation history length:", len(conversation_history))
 
-    if 1:
+    try:
         ch = conversation_history if history else []
       
         if 1:
@@ -55,44 +52,54 @@ def describe_screenshot(prompt, model, image_data, append_callback=None, history
         if mock:
             # Simulated response for debugging purposes
             assistant_response = r"""
-        test response 1
-        test response 2
-        test response 3
-        test response 4
-        test response 5
-        test response 6
-        test response 7
-        test response 8
-        test response 9
-        """
+RecursionError: maximum recursion depth exceeded
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot>
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
+Initializing App
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> ^C
+(myenv) PS C:\Users\alex_\aichat\describe_screenshot> python .\describe_screenshot.py
+
+"""         
             for line in assistant_response.splitlines():
-                if line.strip():  # Skip empty lines
+                for word in line.split():
                     if append_callback:
-                        wx.CallAfter(append_callback, line + '\n', is_streaming=True)
-                time.sleep(0.1)  # Simulate delay between messages
+                        wx.CallAfter(append_callback, f'{word} ', is_streaming=True)
+                    time.sleep(0.02)
+                wx.CallAfter(append_callback, 'new line \n', is_streaming=True)
         else:
             # Real API call
             #pp(ch)
             response = client.chat.completions.create(
                 model=model,
                 messages=ch,
-                stream=True  # Enable streaming
+                stream=True
             )
 
             assistant_response = ""
             for chunk in response:
                 if hasattr(chunk.choices[0].delta, 'content'):
                     content = chunk.choices[0].delta.content
-                    print(content, end="")  # Debug output
                     if content:
                         assistant_response += content
-                        wx.CallAfter(append_callback, content, True)  # Stream each chunk to the UI
+                        if append_callback:
+                            wx.CallAfter(append_callback, content, is_streaming=True)
 
-            # Append the final assistant response to the history if history mode is enabled
-            if history:
-                ch.append({"role": "assistant", "content": assistant_response})
+            # Always append the assistant's response to conversation history when in history mode
+        if history:
+            ch.append({"role": "assistant", "content": assistant_response})
 
+    except Exception as e:
+        print(f"Error in describe_screenshot: {e}")
+        if append_callback:
+            append_callback(f"Error: {str(e)}", is_streaming=False)
+        raise
 
+    finally:
+        #client.close()
+        #wx.CallAfter(self.webview_panel.ask_model_button.Enable)
+        pass
 
 
 
@@ -103,18 +110,13 @@ import io
 class WebViewPanel(wx.Panel):
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
-        
-        # Add queue and timer for content streaming
-        self.content_queue = queue.Queue()
-        self.stream_timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.on_stream_timer, self.stream_timer)
-        
-        # Rest of your existing initialization code...
+
+        # Initialize member variables
         self.active_threads = []
         self.is_collapsed = False
         self.image_data = None
-        self.request_counter = 0
-        self.processing = False
+        self.request_counter = 0  # Add a counter for request IDs
+        self.processing = False  # Add a flag to track processing state
         self.auto_scroll = True
 
         # Create a splitter window
@@ -238,7 +240,7 @@ class WebViewPanel(wx.Panel):
         event.Skip()
 
             
-    def _on_text_ctrl_key(self, event):
+    def on_text_ctrl_key(self, event):
         """Handle keyboard events in the prompt text control."""
         # Check for Alt+Enter
         key_code = event.GetKeyCode()
@@ -258,22 +260,6 @@ class WebViewPanel(wx.Panel):
 
         else:
             event.Skip()  # Process other keys normally
-
-    def on_text_ctrl_key(self, event):
-        """Handle keyboard events in the prompt text control."""
-        key_code = event.GetKeyCode()
-        
-        if event.ControlDown() and key_code == ord('V'):
-            self.handle_clipboard_paste()
-        elif event.AltDown() and key_code == wx.WXK_RETURN:
-            if self.ask_model_button.IsEnabled():
-                self.on_ask_model_button_click(None)
-        # Remove Ctrl+A handler as it's interfering with the flow
-        # elif event.ControlDown() and key_code == ord('A'):
-        #     wx.CallAfter(self.reset_state)
-        else:
-            event.Skip()
-
     def handle_clipboard_paste(self):
         """Process clipboard data when Ctrl+V is pressed."""
         global conversation_history
@@ -341,7 +327,6 @@ class WebViewPanel(wx.Panel):
             wx.TheClipboard.Close()
 
     def reset_state(self):
-        """Reset the WebView state with improved handling of real API calls."""
         try:
             print("Resetting state")
             self.was_reset = False
@@ -351,13 +336,186 @@ class WebViewPanel(wx.Panel):
             
             # Create new WebView
             new_webview = wx.html2.WebView.New(self.splitter)
-            new_webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
-            new_webview.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_webview)
-            
-            # Create an event to track when loading is complete
-            loading_complete = threading.Event()
-            
+            #new_webview.Bind(wx.EVT_ENTER_WINDOW, self.on_mouse_enter_webview)
+            #new_webview.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave_webview)
+            print("222")
+
+            loading_complete = False
             def on_loaded(evt):
+                nonlocal loading_complete
+                print("444 on_loaded")
+                initial_html = """
+                <html>
+                <head>
+                <style>
+                    body {
+                        margin: 0;
+                        padding: 0;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                        font-size: 14px;
+                        line-height: 1.6;
+                        color: #2d2d2d;
+                    }
+
+                    #snapshot-container {
+                        padding: 16px;
+                        border-bottom: 1px solid #e5e7eb;
+                        background-color: #f9fafb;
+                    }
+
+                    #log-container {
+                        padding: 16px;
+                        max-height: calc(100vh - 150px);
+                        overflow-y: auto;
+                    }
+
+                    #snapshot-label {
+                        margin: 0 0 8px 0;
+                        font-weight: 600;
+                        color: #374151;
+                    }
+
+                    .snapshot-image {
+                        max-width: 150px;
+                        height: auto;
+                        margin: 4px 0;
+                        border: 1px solid #e5e7eb;
+                        border-radius: 6px;
+                    }
+
+                .user-prompt {
+                        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+                        color: white;
+                        padding: 12px 16px;
+                        border-radius: 8px;
+                        margin: 8px 0;  /* Reduced from 16px to 8px */
+                        font-weight: 500;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }
+
+                    .model-response {
+                        position: relative;
+                        padding: 16px;
+                        margin: 8px 0;  /* Reduced from 16px to 8px */
+                        border-left: 4px solid #2563eb;
+                        background-color: #f8fafc;
+                        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                        font-size: 13px;
+                        white-space: break-spaces;
+                        word-wrap: break-word;
+                        tab-size: 4;
+                        -moz-tab-size: 4;
+                    }
+
+                    .model-response pre {
+                        margin: 12px 0;
+                        padding: 16px;
+                        border-radius: 6px;
+                        background-color: #1e293b;
+                        color: #e2e8f0;
+                        overflow-x: auto;
+                        white-space: pre;
+                    }
+
+                    .model-response code {
+                        font-family: inherit;
+                        tab-size: 4;
+                        -moz-tab-size: 4;
+                    }
+
+                    table {
+                        width: 100%;
+                        border-collapse: separate;
+                        border-spacing: 0;
+                    }
+
+                    td {
+                        padding: 4px 8px;  /* Reduced top/bottom padding from 8px to 4px */
+                        vertical-align: top;
+                    }
+
+                    /* Add spacing between response groups instead */
+                    tr + tr {
+                        margin-top: 16px;
+                    }
+
+
+                    .code-block {
+                        position: relative;
+                        margin: 16px 0;
+                        background-color: #1e293b;
+                        border-radius: 6px;
+                        overflow: hidden;
+                    }
+
+                    .code-block pre {
+                        margin: 0;
+                        padding: 16px;
+                        overflow-x: auto;
+                    }
+                </style>
+                </head>
+                <body>
+                    <div id="snapshot-container">
+                        <div id="snapshot-label">Recent Snapshots:</div>
+                        <div id="snapshot-images"></div>
+                    </div>
+
+                    <table id="log-container">
+                    </table>
+
+                    <script>
+                        function addSnapshot(base64Image) {
+                            const snapshotImages = document.getElementById('snapshot-images');
+                            const img = document.createElement('img');
+                            img.src = 'data:image/png;base64,' + base64Image;
+                            img.className = 'snapshot-image';
+                            img.loading = 'lazy';
+                            snapshotImages.insertBefore(img, snapshotImages.firstChild);
+                        }
+
+                        function formatCodeBlocks(element) {
+                            const text = element.textContent;
+                            const lines = text.split('\\n');
+                            
+                            // Check if this looks like a code block
+                            const hasIndentation = lines.some(line => line.startsWith('    ') || line.startsWith('\\t'));
+                            const hasCodeMarkers = text.includes('```') || (text.includes('def ') && text.includes('return'));
+                            
+                            if (hasIndentation || hasCodeMarkers) {
+                                const codeBlock = document.createElement('div');
+                                codeBlock.className = 'code-block';
+                                const pre = document.createElement('pre');
+                                pre.textContent = text;
+                                codeBlock.appendChild(pre);
+                                element.innerHTML = '';
+                                element.appendChild(codeBlock);
+                            }
+                        }
+
+                        // Handle text selection events
+                        document.addEventListener('mouseup', function() {
+                            const selectedText = window.getSelection().toString();
+                            if (selectedText) {
+                                window.location.href = 'app://selection?text=' + encodeURIComponent(selectedText);
+                            }
+                        });
+
+                        document.addEventListener('contextmenu', function(event) {
+                            const selectedText = window.getSelection().toString();
+                            event.preventDefault();
+                            if (selectedText) {
+                                window.location.href = 'app://selection?text=' + encodeURIComponent(selectedText);
+                            } else {
+                                window.location.href = 'app://show_back_menu';
+                            }
+                        });
+                    </script>
+                </body>
+                </html>
+                """
+                new_webview.SetPage(initial_html, "")
+
                 try:
                     if hasattr(self, 'image_data') and self.image_data:
                         js_script = """
@@ -384,48 +542,44 @@ class WebViewPanel(wx.Panel):
                                 elif entry['role'] == 'assistant':
                                     self.add_assistant_message_to_webview(new_webview, entry['content'])
                 finally:
+                    print("555")
                     self.was_reset = True
-                    loading_complete.set()
-                    
-            new_webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, on_loaded)
+                    loading_complete = True
+                                
+                # Only after content is loaded, swap the WebViews
+                old_webview = self.webview
+                self.webview = new_webview
+                self.splitter.ReplaceWindow(old_webview, new_webview)
+                old_webview.Destroy()
+                
+            #new_webview.Bind(wx.html2.EVT_WEBVIEW_LOADED, on_loaded)
             
             # Set content and wait for loading
-            self.set_initial_content(new_webview)
-            
-            # Wait for loading with timeout
-            def wait_for_loading():
-                if loading_complete.wait(timeout=5.0):  # 5 second timeout
-                    wx.CallAfter(self._complete_reset, new_webview)
-                else:
-                    print("WARNING: WebView loading timed out")
-                    wx.CallAfter(self._complete_reset, new_webview)
-            
-            # Start waiting thread
-            loading_thread = threading.Thread(target=wait_for_loading)
-            loading_thread.daemon = True
-            loading_thread.start()
-            
+            #self.set_initial_content(new_webview)
+            on_loaded(None)
+            print("333")
+
+            # Add a timeout mechanism
+            timeout = 50  # 5 seconds (50 * 100ms)
+            while not loading_complete and timeout > 0:
+                wx.MilliSleep(100)
+                wx.Yield()
+                timeout -= 1
+                
+            if not loading_complete:
+                print("WARNING: WebView loading timed out")
+                
+            self.prompt_text_ctrl.SetValue("Describe this image")
+            print("444", self.was_reset)
+            parent_frame = self.GetParent().GetParent().GetParent()
+            print(parent_frame)
+            if hasattr(parent_frame, 'status_bar'):
+                parent_frame.panel.update_status(0, f"Processing state and content reset, {self.was_reset}")
+
         except Exception as e:
             print(f"Error in reset_state: {e}")
             raise
-    def _complete_reset(self, new_webview):
-        """Complete the reset process after WebView is loaded."""
-        try:
-            # Replace old WebView with new one
-            old_webview = self.webview
-            self.webview = new_webview
-            self.splitter.ReplaceWindow(old_webview, new_webview)
-            old_webview.Destroy()
-            
-            self.prompt_text_ctrl.SetValue("Describe this image")
-            print("Reset completed", self.was_reset)
-            
-            parent_frame = self.GetParent().GetParent().GetParent()
-            if hasattr(parent_frame, 'status_bar'):
-                parent_frame.panel.update_status(0, f"Processing state and content reset, {self.was_reset}")
-        except Exception as e:
-            print(f"Error in _complete_reset: {e}")
-            raise
+
     def add_user_message_to_webview(self, webview, message):
         """Add user message to specific WebView instance."""
         escaped_message = (message.replace('\\', '\\\\')
@@ -532,130 +686,96 @@ class WebViewPanel(wx.Panel):
         self.auto_scroll_button.SetLabel(f"Auto-Scroll: {'ON' if self.auto_scroll else 'OFF'}")
 
 
-
-
-    def _stream_model_response(self, user_message, request_id):
-        """Stream model response with simplified event handling."""
-        print(f"Processing request {request_id}")
+    def _on_ask_model_button_click(self, event):
+        """
+        Handles the 'Ask Model' button click with improved thread management.
+        """
+        # Check if already processing
+        if self.processing:
+            print("Already processing a request")
+            return
+            
         try:
-            history = self.history_button.GetValue()
-            mock = self.mock_button.GetValue()
+            # Set processing flag
+            self.processing = True
+           
+            self.ask_model_button.Disable()
             
-            if not self.webview:
-                raise Exception("WebView not available")
-                
-            if not history and not self.image_data:
-                raise Exception("No image data available")
+            # Get user message
+            user_message = self.prompt_text_ctrl.GetValue().strip()
+            if not user_message:
+                wx.MessageBox("Please enter a prompt before asking the model.", "Input Required", wx.OK | wx.ICON_WARNING)
+                return
 
-            # Use direct WebView update without events
-            def append_callback(content, is_streaming):
-                """Directly update WebView content without events."""
-                if not content:
-                    return
-                    
-                try:
-                    # Function to safely update WebView
-                    def safe_update():
-                        escaped_content = (content
-                            .replace('\\', '\\\\')
-                            .replace("'", r"\'")
-                            .replace('"', r'\"')
-                            .replace('\n', r'\n')
-                            .replace('\t', r'\t'))
-
-                        js_code = f"""
-                            try {{
-                                var responseRow = document.getElementById("response-{request_id}");
-                                if (responseRow) {{
-                                    var responseDiv = responseRow.querySelector(".model-response");
-                                    if (responseDiv) {{
-                                        responseDiv.textContent += "{escaped_content}";
-                                    }}
-                                    if ({str(self.auto_scroll).lower()}) {{
-                                        responseRow.scrollIntoView({{behavior: "smooth", block: "end"}});
-                                    }}
-                                }}
-                            }} catch (error) {{
-                                console.error("Error in append_callback:", error);
-                            }}
-                        """
-                        if self and self.webview:
-                            self.webview.RunScript(js_code)
-
-                    # Ensure WebView update happens in main thread without recursion
-                    if wx.IsMainThread():
-                        safe_update()
-                    else:
-                        wx.CallAfter(safe_update)
-                        
-                except Exception as e:
-                    print(f"Error updating content: {e}")
-
-            model = self.notebook.get_selected_models()['OpenAI']
+            # Increment request counter
+            self.request_counter += 1
+            request_id = self.request_counter
             
-            if not history:
-                global conversation_history
-                conversation_history = []
-                
-            describe_screenshot(
-                user_message, 
-                model, 
-                self.image_data, 
-                append_callback=append_callback,
-                history=history,
-                mock=mock,
-                request_id=request_id
+            # Create the log entry first
+            wx.CallAfter(self._create_log_entry, user_message, request_id)
+            
+            # Create and start new thread
+            thread = threading.Thread(
+                target=self._stream_model_response,
+                args=(user_message, request_id),
+                daemon=True,
+                name=f"ModelThread-{request_id}"
             )
-
-        except Exception as e:
-            print(f"Error in stream_model_response for request {request_id}: {e}")
-        finally:
-            def cleanup():
-                if self and hasattr(self, 'processing'):
-                    self.processing = False
-                    if hasattr(self, 'ask_model_button'):
-                        self.ask_model_button.Enable()
-            wx.CallAfter(cleanup)
-
-
-    def on_stream_timer(self, event):
-        """Process queued content on timer tick."""
-        try:
-            while not self.content_queue.empty():
-                request_id, content, is_streaming = self.content_queue.get_nowait()
-                self._append_response(request_id, content, is_streaming)
-
-            # Stop the timer if there is no more content to process
-            if self.content_queue.empty():
-                self.stream_timer.Stop()
-
-        except queue.Empty:
-            pass
-        except Exception as e:
-            print(f"Error in stream timer: {e}")
-
-
-    def cleanup_request(self, request_id):
-        """Clean up request and stop timer if no more requests."""
-        #print(f"Cleaning up request {request_id}")
-        try:
-            self.processing = False
-            self.ask_model_button.Enable()
             
-            # Clear queue
-            while not self.content_queue.empty():
-                try:
-                    self.content_queue.get_nowait()
-                except queue.Empty:
-                    break
-                    
-            # Stop timer if no more requests
-            if not self.processing:
-                self.stream_timer.Stop()
-                
+            # Clean up completed threads before adding new one
+            self.active_threads = [t for t in self.active_threads if t.is_alive()]
+            self.active_threads.append(thread)
+            thread.start()
+
         except Exception as e:
-            print(f"Error in cleanup: {e}")
-            self.reset_state()
+            print(f"Error in ask_model_button_click: {e}")
+            #wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            raise e
+            
+        finally:
+            # Re-enable button and reset processing flag after delay
+            if 0:
+                def reset_state():
+                    self.processing = False
+                    
+                    self.ask_model_button.Enable()
+                    
+                wx.CallLater(1000, reset_state)
+
+    def __stream_model_response(self, user_message, request_id):
+        """Handles model response streaming with improved error handling."""
+        try:
+            history=self.history_button.GetValue()
+            if not history:
+                if not self.image_data:
+                    print("WARNING: No image data found to send to the model.")
+                    wx.MessageBox("No image data found to send to the model.", "Error", wx.OK | wx.ICON_ERROR)
+                    return  
+                
+
+            def append_callback(content, is_streaming):
+                if content:  # Only append if there's actual content
+                    #wx.CallAfter(self._append_response, request_id, content, is_streaming)
+                    self._append_response(request_id, content, is_streaming)
+            model=self.notebook.get_selected_models()['OpenAI']
+            
+            describe_screenshot(user_message, model, self.image_data, append_callback=append_callback, history=history, mock=False, request_id=request_id)  
+            #if history:
+            #    self.image_data=None
+
+        except Exception as e:
+            print(f"Error in _stream_model_response for request {request_id}: {e}")
+            error_msg = f"\n\nError: {str(e)}"
+            wx.CallAfter(self._append_response, request_id, error_msg, False)
+            #wx.CallAfter(wx.MessageBox, f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            raise e
+
+        finally:
+            current_thread = threading.current_thread()
+            if current_thread in self.active_threads:
+                wx.CallAfter(self._remove_thread, current_thread)
+                wx.CallAfter(self.ask_model_button.Enable)
+                self.processing = False
 
     def _remove_thread(self, thread):
         """Safely remove a thread from active threads."""
@@ -711,138 +831,222 @@ class WebViewPanel(wx.Panel):
 
 
     def _append_response(self, request_id, content, is_streaming):
-        """Append content to the WebView in real-time."""
-        if not content or not self.webview:
+        """Safely append response content with proper escaping."""
+        if not content:
             return
 
         try:
-            # Replace newlines with <br> for HTML rendering
-            escaped_content = content.replace("\n", "<br>").replace('"', '&quot;').replace("'", "&apos;")
+            if "<script>" in content:
+                raise Exception("Invalid content detected!")
 
-            js_code = f"""
-                try {{
-                    var responseRow = document.getElementById("response-{request_id}");
-                    if (!responseRow) {{
-                        responseRow = document.createElement('tr');
-                        responseRow.id = "response-{request_id}";
-                        var responseCell = document.createElement('td');
-                        var responseDiv = document.createElement('div');
-                        responseDiv.className = 'model-response';
-                        responseDiv.innerHTML = "";  // Initialize empty
-                        responseCell.appendChild(responseDiv);
-                        responseRow.appendChild(responseCell);
-                        document.getElementById('log-container').appendChild(responseRow);
-                    }}
-                    var responseDiv = responseRow.querySelector('div');
-                    responseDiv.innerHTML += `{escaped_content}`;  // Append new content
-                    if ({str(self.auto_scroll).lower()}) {{
-                        responseRow.scrollIntoView({{behavior: "smooth", block: "end"}});
-                    }}
-                }} catch (error) {{
-                    console.error("Error appending response:", error);
-                }}
-            """
-            self.webview.RunScript(js_code)
-        except Exception as e:
-            print(f"Error in _append_response: {e}")
+            escaped_content = (content
+                .replace('\\', '\\\\')
+                .replace("'", r"\'")
+                .replace('"', r'\"')
+                .replace('\n', r'\n')
+                .replace('\t', r'\t'))
 
-
-
-
-
-
-
-
- 
+            js_code = (
+                'try {'
+                '   var responseRow = document.getElementById("response-' + str(request_id) + '");'
+                '   if (responseRow) {'
+                '       var responseDiv = responseRow.querySelector(".model-response");'
+                '       if (responseDiv) {'
+                '           var content = "' + escaped_content + '";'
+                '           responseDiv.textContent += content;'
+                '           if (!' + str(is_streaming).lower() + ') {'
+                '               formatCodeBlocks(responseDiv);'
+                '           }'
+                '       }'
+                '       if (' + str(self.auto_scroll).lower() + ') {'
+                '           responseRow.scrollIntoView({behavior: "smooth", block: "end"});'
+                '       }'
+                '   }'
+                '} catch (error) {'
+                '   console.error("Error in _append_response:", error);'
+                '}'
+            )
             
-    def on_ask_model_button_click(self, event):
-        """Handle ask model button click with real API streaming."""
+            self.webview.RunScript(js_code)
+
+        except Exception as e:
+            print(f"Error appending response: {e}")
+            if not isinstance(e, RecursionError):
+                wx.CallAfter(
+                    wx.MessageBox,
+                    f"Error appending response: {str(e)}",
+                    "Error",
+                    wx.OK | wx.ICON_ERROR
+                )
+
+    def __on_ask_model_button_click(self, event):
+        """Handle asking the model with improved error handling."""
         if self.processing:
-            return  # Ignore if already processing
+            print("Already processing a request")
+            return
 
-        self.processing = True
-        self.ask_model_button.Disable()
+        try:
+            self.processing = True
+            self.ask_model_button.Disable()
 
-        user_message = self.prompt_text_ctrl.GetValue().strip()
-        if not user_message:
-            wx.MessageBox("Please enter a prompt before asking the model.", "Error", wx.OK | wx.ICON_ERROR)
+            user_message = self.prompt_text_ctrl.GetValue().strip()
+            if not user_message:
+                wx.MessageBox("Please enter a prompt before asking the model.", 
+                            "Input Required", 
+                            wx.OK | wx.ICON_WARNING)
+                return
+
+            self.request_counter += 1
+            request_id = self.request_counter
+
+            # Create log entry in the main thread
+            self._create_log_entry(user_message, request_id)
+
+            # Start response thread
+            thread = threading.Thread(
+                target=self._stream_model_response,
+                args=(user_message, request_id),
+                daemon=True,
+                name=f"ModelThread-{request_id}"
+            )
+            
+            self.active_threads = [t for t in self.active_threads if t.is_alive()]
+            self.active_threads.append(thread)
+            thread.start()
+
+        except Exception as e:
+            print(f"Error in ask_model_button_click: {e}")
             self.processing = False
             self.ask_model_button.Enable()
+            wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
+            
+    def on_ask_model_button_click(self, event):
+        print("-------------------------on_ask_model_button_click")
+        if self.processing:
             return
 
-        self.request_counter += 1
-        request_id = self.request_counter
-        self._create_log_entry(user_message, request_id)
+        try:
+            if self.request_counter:
+                self.reset_state()
+            self.processing = True
+            self.ask_model_button.Disable()
+            user_message = self.prompt_text_ctrl.GetValue().strip()
+            
+            if not user_message:
+                wx.MessageBox("Please enter a prompt before asking the model.", "Input Required", wx.OK | wx.ICON_WARNING)
+                return
 
-        # Start streaming in a thread
-        thread = threading.Thread(
-            target=self._stream_model_response,
-            args=(user_message, request_id),
-            daemon=True,
-        )
-        thread.start()
-        self.stream_timer.Start(100)  # Process every 100ms
+            # Increment request counter BEFORE creating log entry
+            self.request_counter += 1
+            request_id = self.request_counter
 
+            # Create log entry and start response thread
+            self._create_log_entry(user_message, request_id)
+            thread = threading.Thread(
+                target=self._stream_model_response,
+                args=(user_message, request_id),
+                daemon=True,
+                name=f"ModelThread-{request_id}"
+            )
+            
+            self.active_threads = [t for t in self.active_threads if t.is_alive()]
+            self.active_threads.append(thread)
+            thread.start()
 
-
+        except Exception as e:
+            print(f"Error: {e}")
+            self.processing = False
+            self.ask_model_button.Enable()
+            wx.MessageBox(f"Error: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
 
     def _stream_model_response(self, user_message, request_id):
-        """Stream model response with improved error handling."""
-        print(f"Processing request {request_id}")
+        """Handle streaming responses with improved error handling."""
         try:
             history = self.history_button.GetValue()
-            mock = self.mock_button.GetValue()
-            model = self.notebook.get_selected_models()['OpenAI']
-
-            if not self.webview:
-                raise Exception("WebView not available")
-
             if not history and not self.image_data:
-                raise Exception("No image data available")
+                wx.CallAfter(wx.MessageBox,
+                            "No image data found to send to the model.",
+                            "Error",
+                            wx.OK | wx.ICON_ERROR)
+                return
 
-            # Define append_callback within _stream_model_response
             def append_callback(content, is_streaming):
-                """
-                Handles the content streaming for the WebView.
-                - `content`: The chunk of text to append.
-                - `is_streaming`: Indicates if streaming is still ongoing.
-                """
                 if content:
-                    # Add content to the content queue for real-time processing
-                    self.content_queue.put((request_id, content, is_streaming))
+                    wx.CallAfter(self._append_response, request_id, content, is_streaming)
 
-                    # Start the timer to ensure the queue gets processed
-                    if not self.stream_timer.IsRunning():
-                        self.stream_timer.Start(100)  # Process every 100ms
-
-            # Pass the callback to describe_screenshot
+            model = self.notebook.get_selected_models()['OpenAI']
+            mock=self.mock_button.GetValue()
             describe_screenshot(
                 user_message, 
                 model, 
                 self.image_data, 
-                append_callback=append_callback,  # Pass this callback
+                append_callback=append_callback,
                 history=history,
-                mock=mock,
+                mock=mock ,
                 request_id=request_id
             )
 
         except Exception as e:
             print(f"Error in _stream_model_response for request {request_id}: {e}")
+            wx.CallAfter(self._append_response,
+                        request_id,
+                        f"\n\nError: {str(e)}",
+                        False)
         finally:
-            wx.CallAfter(self._cleanup_request, request_id)
+            current_thread = threading.current_thread()
+            if current_thread in self.active_threads:
+                wx.CallAfter(self._remove_thread, current_thread)
+                wx.CallAfter(self.ask_model_button.Enable)
+                self.processing = False
 
-
-    def _cleanup_request(self, request_id):
-        """Clean up after request completes."""
+    def __append_response(self, request_id, content, is_streaming):
+        """Safely append response content with code formatting."""
         try:
-            self.processing = False
-            self.ask_model_button.Enable()
-            while not self.content_queue.empty():
-                self.content_queue.get_nowait()
-            if self.stream_timer.IsRunning():
-                self.stream_timer.Stop()
+            if not content:
+                return
+            if "<script>" in content:  # Example validation
+                raise Exception("Invalid content detected!")
+            # Prepare the content with proper escaping
+            safe_content = (content
+                .replace('\\', '\\\\')
+                .replace("'", "\\'")
+                .replace('"', '\\"')
+                .replace('\n', '\\n')
+                .replace('\t', '\\t'))
+
+            js_script = f"""
+                (function() {{
+                    var responseRow = document.getElementById('response-{request_id}');
+                    if (responseRow) {{
+                        var responseDiv = responseRow.querySelector('.model-response');
+                        if (responseDiv) {{
+                            var content = '{safe_content}';
+                            
+                            // Decode escaped newlines and tabs back to actual characters
+                            content = content.replace(/\\\\n/g, '\\n').replace(/\\\\t/g, '\\t');
+                            
+                            // Append the new content
+                            var textNode = document.createTextNode(content);
+                            responseDiv.appendChild(textNode);
+                            
+                            // Format code blocks if this is the end of streaming
+                            if (!{str(is_streaming).lower()}) {{
+                                formatCodeBlocks(responseDiv);
+                            }}
+                        }}
+                        
+                        // Auto-scroll if enabled
+                        if ({str(self.auto_scroll).lower()}) {{
+                            responseRow.scrollIntoView({{behavior: 'smooth', block: 'end'}});
+                        }}
+                    }}
+                }})();
+            """
+            self.webview.RunScript(js_script)
+
         except Exception as e:
-            print(f"Error in _cleanup_request: {e}")
+            print(f"Error appending response: {e}")
+
 
     def add_image_as_log_entry(self, base64_image):
         self.image_data = base64_image  
@@ -862,7 +1066,7 @@ class WebViewPanel(wx.Panel):
 
     def on_collapse_button_click(self, event):
        
-        #print ("on_collapse_button_click", self.is_collapsed, self.processing)  
+        print ("on_collapse_button_click", self.is_collapsed, self.processing)  
         """Toggle collapsing or expanding the button panel."""
         if self.is_collapsed:
             # Expand the button panel
@@ -880,7 +1084,7 @@ class WebViewPanel(wx.Panel):
 
     def on_mouse_enter_webview(self, event):
         """Handle mouse entering the WebView."""
-        #print("Mouse entered WebView.", self.is_collapsed)
+        print("Mouse entered WebView.", self.is_collapsed)
         if  self.processing:
             print("on_mouse_enter_webview disabled due to current state.")
             return  
@@ -895,7 +1099,7 @@ class WebViewPanel(wx.Panel):
 
     def on_mouse_enter_button_panel(self, event):
         """Handle mouse entering the bottom button panel."""
-        #print("Mouse entered Bottom Panel.", self.is_collapsed)
+        print("Mouse entered Bottom Panel.", self.is_collapsed)
         if  self.processing:
             print("on_mouse_enter_button_panel disabled due to current state.")
             return
@@ -922,7 +1126,7 @@ class WebViewPanel(wx.Panel):
             return  # Do nothing if the mouse is still within the panel or its children
 
         # Otherwise, trigger the collapse
-        #print("Mouse left Bottom Panel.", self.is_collapsed)
+        print("Mouse left Bottom Panel.", self.is_collapsed)
         if not self.is_collapsed:
             self.on_collapse_button_click(None)  # Collapse WebView and expand Bottom Panel        
         event.Skip()
@@ -981,47 +1185,17 @@ class WebViewPanel(wx.Panel):
             }
 
             .model-response {
-                font-family: monospace;
-                white-space: pre-wrap;
-                line-height: 1.5;
-                padding: 1em;
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                border-radius: 4px;
-            }
-
-            .line-item {
-                display: flex;
-                padding: 2px 0;
-            }
-
-            .bullet {
-                padding-right: 8px;
-                color: #d4d4d4;
-            }
-
-            .content {
-                flex: 1;
-            }
-
-            /* Preserve indentation for nested items */
-            .line-item {
-                padding-left: 20px;
-                text-indent: -20px;
-            }
-
-            .model-response .bullet-point {
-                display: block;
-                padding-left: 24px;
-                text-indent: -20px;
-                margin: 4px 0;
-                white-space: pre-wrap;
-            }
-
-            .model-response .text-line {
-                display: block;
-                margin: 4px 0;
-                white-space: pre-wrap;
+                position: relative;
+                padding: 16px;
+                margin: 8px 0;  /* Reduced from 16px to 8px */
+                border-left: 4px solid #2563eb;
+                background-color: #f8fafc;
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                font-size: 13px;
+                white-space: break-spaces;
+                word-wrap: break-word;
+                tab-size: 4;
+                -moz-tab-size: 4;
             }
 
             .model-response pre {
@@ -1032,17 +1206,30 @@ class WebViewPanel(wx.Panel):
                 color: #e2e8f0;
                 overflow-x: auto;
                 white-space: pre;
-                font-family: inherit;
             }
 
             .model-response code {
                 font-family: inherit;
-                background-color: #1e293b;
-                color: #e2e8f0;
-                padding: 2px 4px;
-                border-radius: 3px;
-                white-space: pre;
+                tab-size: 4;
+                -moz-tab-size: 4;
             }
+
+            table {
+                width: 100%;
+                border-collapse: separate;
+                border-spacing: 0;
+            }
+
+            td {
+                padding: 4px 8px;  /* Reduced top/bottom padding from 8px to 4px */
+                vertical-align: top;
+            }
+
+            /* Add spacing between response groups instead */
+            tr + tr {
+                margin-top: 16px;
+            }
+
 
             .code-block {
                 position: relative;
@@ -1056,7 +1243,6 @@ class WebViewPanel(wx.Panel):
                 margin: 0;
                 padding: 16px;
                 overflow-x: auto;
-                white-space: pre;
             }
         </style>
         </head>
